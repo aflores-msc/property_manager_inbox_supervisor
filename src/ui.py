@@ -126,7 +126,7 @@ _CLASSIFICATION_COLOURS: dict[str, str] = {
 # ---------------------------------------------------------------------------
 
 class FetchEmailsWorker(QThread):
-    """Fetch unread emails from IMAP in a background thread."""
+    """Fetch unread emails from Gmail in a background thread."""
 
     finished = pyqtSignal(list)
     error = pyqtSignal(str)
@@ -140,6 +140,13 @@ class FetchEmailsWorker(QThread):
             emails = fetcher.fetch_unread_emails()
             fetcher.disconnect()
             self.finished.emit(emails)
+        except FileNotFoundError as exc:
+            logger.error("Missing credentials: %s", exc)
+            self.error.emit(
+                "credentials.json not found. Download your OAuth2 client "
+                "credentials from the Google Cloud Console and place the "
+                "file in the application directory."
+            )
         except Exception as exc:
             logger.exception("Email fetch failed")
             self.error.emit(str(exc))

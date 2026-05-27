@@ -1,109 +1,143 @@
-"""IMAP email fetching logic."""
+"""Gmail API email fetching logic using OAuth2 Desktop Flow."""
 
 from __future__ import annotations
 
-import email
-import imaplib
+import base64
+import logging
+import os
 import uuid
-from email.header import decode_header
 from typing import Any
 
-from src.config import config
+from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
+from googleapiclient.discovery import build, Resource
+
+logger = logging.getLogger(__name__)
+
+SCOPES: list[str] = ["https://www.googleapis.com/auth/gmail.readonly"]
 
 
-def _decode_header_value(raw: Any) -> str:
-    """Decode an email header that may contain encoded words."""
-    if raw is None:
-        return ""
-    decoded_parts: list[str] = []
-    for part, charset in decode_header(str(raw)):
-        if isinstance(part, bytes):
-            decoded_parts.append(part.decode(charset or "utf-8", errors="replace"))
-        else:
-            decoded_parts.append(part)
-    return " ".join(decoded_parts)
+def _get_app_dir() -> str:
+    """Return the directory where the executable is running.
+
+    Uses ``os.getcwd()`` so that ``credentials.json`` and ``token.json``
+    are always read from / written to the working directory of the
+    running process — this avoids breakage inside PyInstaller's
+    ``_MEIPASS`` temp folder.
+    """
+    return os.getcwd()
 
 
-def _extract_plain_text(msg: email.message.Message) -> str:
-    """Walk a MIME message and return the first text/plain payload."""
-    if msg.is_multipart():
-        for part in msg.walk():
-            content_type = part.get_content_type()
-            disposition = str(part.get("Content-Disposition", ""))
-            if content_type == "text/plain" and "attachment" not in disposition:
-                payload = part.get_payload(decode=True)
-                if payload is not None:
-                    charset = part.get_content_charset() or "utf-8"
-                    return payload.decode(charset, errors="replace")
-    else:
-        payload = msg.get_payload(decode=True)
-        if payload is not None:
-            charset = msg.get_content_charset() or "utf-8"
-            return payload.decode(charset, errors="replace")
-    return ""
+def _credentials_path() -> str:
+    return os.path.join(_get_app_dir(), "credentials.json")
+
+
+def _token_path() -> str:
+    return os.path.join(_get_app_dir(), "token.json")
 
 
 class EmailFetcher:
-    """Connects to an IMAP server and fetches unread emails."""
+    """Connects to Gmail via OAuth2 and fetches unread emails."""
 
     def __init__(self) -> None:
-        self._server: str = config.EMAIL_IMAP_SERVER
-        self._port: int = config.EMAIL_PORT_IMAP
-        self._username: str = config.EMAIL_USERNAME
-        self._password: str = config.EMAIL_PASSWORD
-        self._connection: imaplib.IMAP4_SSL | None = None
+        self._service: Resource | None = None
 
     def connect(self) -> None:
-        """Establish an SSL connection and authenticate."""
-        self._connection = imaplib.IMAP4_SSL(self._server, self._port)
-        self._connection.login(self._username, self._password)
+        """Authenticate via OAuth2 Desktop Flow and build the Gmail service."""
+        creds: Credentials | None = None
+
+        token_file = _token_path()
+        if os.path.exists(token_file):
+            creds = Credentials.from_authorized_user_file(token_file, SCOPES)
+
+        if creds is None or not creds.valid:
+            if creds is not None and creds.expired and creds.refresh_token:
+                creds.refresh(Request())
+            else:
+                creds_file = _credentials_path()
+                if not os.path.exists(creds_file):
+                    raise FileNotFoundError(
+                        f"OAuth credentials file not found at '{creds_file}'. "
+                        "Download it from the Google Cloud Console and place it "
+                        "in the same directory as the application executable."
+                    )
+                flow = InstalledAppFlow.from_client_secrets_file(creds_file, SCOPES)
+                creds = flow.run_local_server(port=0)
+
+            with open(token_file, "w") as f:
+                f.write(creds.to_json())
+
+        self._service = build("gmail", "v1", credentials=creds)
 
     def disconnect(self) -> None:
-        """Close the mailbox and log out."""
-        if self._connection is not None:
-            try:
-                self._connection.close()
-            except imaplib.IMAP4.error:
-                pass
-            try:
-                self._connection.logout()
-            except imaplib.IMAP4.error:
-                pass
-            self._connection = None
+        """Release the Gmail service handle."""
+        self._service = None
 
     def fetch_unread_emails(self) -> list[dict[str, str]]:
-        """Retrieve all unread emails from the INBOX.
+        """Retrieve unread emails from the Gmail inbox.
 
         Returns a list of dicts with keys:
             email_id, subject, sender, body
         """
-        if self._connection is None:
+        if self._service is None:
             self.connect()
-        assert self._connection is not None
+        assert self._service is not None
 
-        self._connection.select("INBOX")
-        status, message_ids = self._connection.search(None, "UNSEEN")
-        if status != "OK" or not message_ids or not message_ids[0]:
+        results: dict[str, Any] = (
+            self._service.users()
+            .messages()
+            .list(userId="me", labelIds=["UNREAD", "INBOX"], maxResults=50)
+            .execute()
+        )
+
+        message_refs: list[dict[str, str]] = results.get("messages", [])
+        if not message_refs:
             return []
 
         emails: list[dict[str, str]] = []
-        for mid in message_ids[0].split():
-            status, msg_data = self._connection.fetch(mid, "(RFC822)")
-            if status != "OK" or not msg_data:
-                continue
-            for response_part in msg_data:
-                if not isinstance(response_part, tuple):
-                    continue
-                msg = email.message_from_bytes(response_part[1])
-                subject = _decode_header_value(msg["Subject"])
-                sender = _decode_header_value(msg["From"])
-                body = _extract_plain_text(msg)
-                emails.append(
-                    {
-                        "email_id": uuid.uuid4().hex[:12],
-                        "subject": subject,
-                        "sender": sender,
-                        "body": body,
-                    }
-                )
+        for ref in message_refs:
+            msg: dict[str, Any] = (
+                self._service.users()
+                .messages()
+                .get(userId="me", id=ref["id"], format="full")
+                .execute()
+            )
+
+            headers = {
+                h["name"].lower(): h["value"]
+                for h in msg.get("payload", {}).get("headers", [])
+            }
+            subject = headers.get("subject", "(no subject)")
+            sender = headers.get("from", "")
+            body = _extract_plain_text(msg.get("payload", {}))
+
+            emails.append(
+                {
+                    "email_id": uuid.uuid4().hex[:12],
+                    "subject": subject,
+                    "sender": sender,
+                    "body": body,
+                }
+            )
+
         return emails
+
+
+def _extract_plain_text(payload: dict[str, Any]) -> str:
+    """Recursively walk a Gmail message payload and return plain text."""
+    mime_type: str = payload.get("mimeType", "")
+
+    if mime_type == "text/plain":
+        data: str = payload.get("body", {}).get("data", "")
+        if data:
+            return base64.urlsafe_b64decode(data).decode("utf-8", errors="replace")
+        return ""
+
+    parts: list[dict[str, Any]] = payload.get("parts", [])
+    for part in parts:
+        text = _extract_plain_text(part)
+        if text:
+            return text
+
+    return ""
