@@ -18,7 +18,7 @@ class UniversalRoutingData(BaseModel):
     sender_type: str = Field(description="Type of sender, e.g. 'tenant', 'city', 'vendor'")
     property_address: str = Field(description="Property street address mentioned in email")
     unit_number: str = Field(default="", description="Unit or apartment number if applicable")
-    classification: Literal["MAINTENANCE", "CITY_NOTICE", "TENANT_DISPUTE"] = Field(
+    classification: Literal["MAINTENANCE", "CITY_NOTICE", "TENANT_DISPUTE", "IGNORED"] = Field(
         description="Category the email falls into"
     )
     priority_level: Literal["LOW", "MEDIUM", "HIGH", "URGENT"] = Field(

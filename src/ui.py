@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any
 
@@ -20,7 +19,7 @@ from PyQt6.QtWidgets import (
     QStatusBar,
     QTableWidget,
     QTableWidgetItem,
-    QTextEdit,
+    QTextBrowser,
     QVBoxLayout,
     QWidget,
 )
@@ -74,13 +73,13 @@ QPushButton:disabled {
     background-color: #45475a;
     color: #6c7086;
 }
-QTextEdit {
+QTextBrowser {
     background-color: #181825;
-    color: #a6e3a1;
+    color: #cdd6f4;
     border: 1px solid #313244;
     border-radius: 6px;
     padding: 8px;
-    font-family: 'Cascadia Code', 'Consolas', monospace;
+    font-family: 'Segoe UI', 'Roboto', sans-serif;
     font-size: 13px;
 }
 QStatusBar {
@@ -118,6 +117,7 @@ _CLASSIFICATION_COLOURS: dict[str, str] = {
     "CITY_NOTICE": "#cba6f7",
     "MAINTENANCE": "#89b4fa",
     "TENANT_DISPUTE": "#f38ba8",
+    "IGNORED": "#6c7086",
 }
 
 
@@ -253,8 +253,9 @@ class InboxSupervisorWindow(QMainWindow):
         detail_label = QLabel("Extracted Details")
         detail_label.setFont(QFont("Segoe UI", 14, QFont.Weight.Bold))
         detail_layout.addWidget(detail_label)
-        self._detail_view = QTextEdit()
+        self._detail_view = QTextBrowser()
         self._detail_view.setReadOnly(True)
+        self._detail_view.setOpenExternalLinks(False)
         detail_layout.addWidget(self._detail_view)
         splitter.addWidget(detail_widget)
 
@@ -359,27 +360,95 @@ class InboxSupervisorWindow(QMainWindow):
     def _on_row_selected(self, row: int, _col: int, _prev_row: int, _prev_col: int) -> None:
         if 0 <= row < len(self._processed_results):
             result = self._processed_results[row]
-            detail = self._format_result(result)
-            self._detail_view.setText(detail)
+            self._detail_view.setHtml(self._format_result(result))
 
     # ---- Helpers -----------------------------------------------------------
 
     @staticmethod
-    def _format_result(result: dict[str, Any]) -> str:
-        """Format a pipeline result dict as readable JSON for the detail panel."""
-        output: dict[str, Any] = {}
+    def _humanize(field_name: str) -> str:
+        """Convert a snake_case field name into a Title Case label."""
+        return field_name.replace("_", " ").title()
 
+    @staticmethod
+    def _format_value(value: Any) -> str:
+        """Render a field value as display-ready text."""
+        if isinstance(value, bool):
+            return "Yes" if value else "No"
+        text = str(value).strip()
+        return text if text else "—"
+
+    def _render_section(self, title: str, data: dict[str, Any]) -> str:
+        """Render a titled block of key-value rows as HTML."""
+        rows = "".join(
+            f"<tr>"
+            f"<td style='padding:4px 12px 4px 0; color:#a6adc8; "
+            f"vertical-align:top; white-space:nowrap;'>{self._humanize(key)}</td>"
+            f"<td style='padding:4px 0; color:#cdd6f4;'>{self._format_value(val)}</td>"
+            f"</tr>"
+            for key, val in data.items()
+        )
+        return (
+            f"<h3 style='color:#89b4fa; margin-bottom:4px;'>{title}</h3>"
+            f"<table style='border-collapse:collapse; width:100%;'>{rows}</table>"
+        )
+
+    # Backend / system fields that must never be shown to the user.
+    _HIDDEN_FIELDS: frozenset[str] = frozenset(
+        {"email_id", "sender_type", "original_email_text"}
+    )
+
+    def _format_result(self, result: dict[str, Any]) -> str:
+        """Format a pipeline result as human-readable HTML for the detail panel."""
         routing = result.get("routing_data")
-        if routing is not None:
-            output["routing"] = routing.model_dump()
 
-        for key in ("city_notice", "maintenance", "dispute"):
+        if routing is None:
+            error = result.get("error")
+            if error:
+                return (
+                    "<p style='color:#f38ba8;'>An error occurred while processing "
+                    f"this email:</p><p style='color:#a6adc8;'>{error}</p>"
+                )
+            return "<p style='color:#a6adc8;'>No details available.</p>"
+
+        # Ignored emails get a clean, friendly message with no extracted fields.
+        if routing.classification == "IGNORED":
+            return (
+                "<p style='color:#a6adc8; font-size:14px; margin-top:8px;'>"
+                "This email was classified as unrelated to property management "
+                "and was ignored.</p>"
+            )
+
+        sections: list[str] = []
+
+        # Overview: classification + priority + address (hide backend fields).
+        overview = {
+            key: val
+            for key, val in routing.model_dump().items()
+            if key not in self._HIDDEN_FIELDS
+        }
+        sections.append(self._render_section("Overview", overview))
+
+        # Specialist extraction details.
+        specialist_titles = {
+            "city_notice": "City / Legal Notice",
+            "maintenance": "Maintenance Request",
+            "dispute": "Tenant Dispute",
+        }
+        for key, title in specialist_titles.items():
             value = result.get(key)
             if value is not None:
-                output[key] = value.model_dump()
+                data = {
+                    k: v
+                    for k, v in value.model_dump().items()
+                    if k not in self._HIDDEN_FIELDS
+                }
+                sections.append(self._render_section(title, data))
 
         error = result.get("error")
         if error:
-            output["error"] = error
+            sections.append(
+                f"<h3 style='color:#f38ba8; margin-bottom:4px;'>Error</h3>"
+                f"<p style='color:#a6adc8;'>{error}</p>"
+            )
 
-        return json.dumps(output, indent=2, default=str)
+        return "".join(sections)

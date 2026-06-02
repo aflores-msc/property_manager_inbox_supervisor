@@ -57,7 +57,10 @@ def supervisor_node(state: PropertyManagementState) -> dict[str, Any]:
         f"Subject: {subject}\n"
         f"From: {sender}\n\n"
         f"Body:\n{email_text}\n\n"
-        "Classify the email as exactly one of: MAINTENANCE, CITY_NOTICE, or TENANT_DISPUTE.\n"
+        "Classify the email as exactly one of: MAINTENANCE, CITY_NOTICE, TENANT_DISPUTE, or IGNORED.\n"
+        "If the email is a system alert (e.g., Google sign-in alerts), a newsletter, "
+        "marketing spam, or anything unrelated to physical property management, you MUST "
+        "classify it as 'IGNORED'.\n"
         "Determine the priority level as one of: LOW, MEDIUM, HIGH, or URGENT.\n"
         "Extract the property address and unit number if mentioned.\n"
         "Determine the sender type (e.g. 'tenant', 'city', 'vendor', 'contractor')."
@@ -77,6 +80,8 @@ def _route_by_classification(state: PropertyManagementState) -> str:
     if routing is None:
         return "end"
     classification = routing.classification
+    if classification == "IGNORED":
+        return "end"
     route_map = {
         "CITY_NOTICE": "legal_agent",
         "MAINTENANCE": "maintenance_agent",
