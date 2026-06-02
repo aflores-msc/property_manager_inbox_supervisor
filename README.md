@@ -7,8 +7,13 @@ A native desktop application that connects to Gmail via OAuth2, fetches unread e
 - **Gmail API with OAuth2** — secure Desktop Flow authentication using `credentials.json`
 - **AI-powered classification** — routes emails to MAINTENANCE, CITY_NOTICE, or TENANT_DISPUTE
 - **Multi-agent pipeline** — specialist agents extract structured data per category
-- **Real-time dashboard** — PyQt6 dark-mode UI with progress tracking and JSON detail view
+- **Real-time dashboard** — PyQt6 dark-mode UI with progress tracking and a human-readable detail view
 - **Structured output** — uses Gemini's `response_schema` for guaranteed JSON responses
+- **SQLite persistence** — processed tickets are stored in a local `property_manager.db`; the dashboard is populated strictly from the database
+- **Strict IGNORED filtering** — system alerts, newsletters, and spam are classified as `IGNORED` and discarded entirely (never saved, never shown)
+- **Auto-fetch timer** — configure an interval (in minutes) via **Settings**; persisted across launches with `QSettings`
+- **Export to CSV** — export all stored tickets to a CSV file
+- **Logical priority sorting** — the Priority column sorts by severity (URGENT/CRITICAL > HIGH > MEDIUM > LOW) rather than alphabetically
 
 ## Architecture
 
@@ -77,9 +82,11 @@ build.bat
 │   ├── models.py        # Pydantic schemas & LangGraph state
 │   ├── email_client.py  # Gmail API OAuth2 connection and fetching
 │   ├── agents.py        # LangGraph nodes and graph compilation
+│   ├── database.py      # SQLite persistence (tickets table + DAO methods)
 │   └── ui.py            # PyQt6 dashboard and QThread workers
 ├── credentials.json     # OAuth2 client credentials (not committed)
 ├── token.json           # OAuth2 refresh token (auto-generated, not committed)
+├── property_manager.db  # SQLite database (auto-generated, not committed)
 ├── .env.example         # Environment variable template
 ├── requirements.txt     # Python dependencies
 └── build.bat            # PyInstaller build script

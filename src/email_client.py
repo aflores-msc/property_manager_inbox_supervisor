@@ -5,7 +5,6 @@ from __future__ import annotations
 import base64
 import logging
 import os
-import uuid
 from typing import Any
 
 from google.auth.transport.requests import Request
@@ -114,7 +113,7 @@ class EmailFetcher:
 
             emails.append(
                 {
-                    "email_id": uuid.uuid4().hex[:12],
+                    "email_id": ref["id"],
                     "subject": subject,
                     "sender": sender,
                     "body": body,

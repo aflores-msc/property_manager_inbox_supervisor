@@ -2,19 +2,28 @@
 
 from __future__ import annotations
 
+import csv
+import json
 import logging
+from datetime import datetime
 from typing import Any
 
-from PyQt6.QtCore import QThread, pyqtSignal, Qt
+from PyQt6.QtCore import QSettings, QThread, QTimer, pyqtSignal, Qt
 from PyQt6.QtGui import QColor, QFont
 from PyQt6.QtWidgets import (
     QApplication,
+    QDialog,
+    QDialogButtonBox,
+    QFileDialog,
+    QFormLayout,
     QHBoxLayout,
     QHeaderView,
     QLabel,
     QMainWindow,
+    QMessageBox,
     QProgressBar,
     QPushButton,
+    QSpinBox,
     QSplitter,
     QStatusBar,
     QTableWidget,
@@ -24,9 +33,26 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from src.database import Database
 from src.models import PropertyManagementState
 
 logger = logging.getLogger(__name__)
+
+# QSettings organisation / application identifiers.
+_SETTINGS_ORG = "PropertyManager"
+_SETTINGS_APP = "InboxSupervisor"
+_SETTINGS_INTERVAL_KEY = "auto_fetch_interval_minutes"
+
+# Severity weights for logical (non-alphabetical) priority sorting.
+# URGENT and CRITICAL are treated as the same top severity.
+_PRIORITY_WEIGHTS: dict[str, int] = {
+    "CRITICAL": 4,
+    "URGENT": 4,
+    "HIGH": 3,
+    "MEDIUM": 2,
+    "LOW": 1,
+    "IGNORED": 0,
+}
 
 # ---------------------------------------------------------------------------
 # Dark-mode stylesheet
@@ -86,6 +112,32 @@ QStatusBar {
     background-color: #11111b;
     color: #a6adc8;
 }
+QMenuBar {
+    background-color: #11111b;
+    color: #cdd6f4;
+}
+QMenuBar::item:selected {
+    background-color: #313244;
+}
+QMenu {
+    background-color: #181825;
+    color: #cdd6f4;
+    border: 1px solid #313244;
+}
+QMenu::item:selected {
+    background-color: #45475a;
+}
+QDialog {
+    background-color: #1e1e2e;
+    color: #cdd6f4;
+}
+QSpinBox {
+    background-color: #181825;
+    color: #cdd6f4;
+    border: 1px solid #313244;
+    border-radius: 4px;
+    padding: 4px;
+}
 QProgressBar {
     background-color: #313244;
     border: none;
@@ -119,6 +171,42 @@ _CLASSIFICATION_COLOURS: dict[str, str] = {
     "TENANT_DISPUTE": "#f38ba8",
     "IGNORED": "#6c7086",
 }
+
+
+# ---------------------------------------------------------------------------
+# Custom table item for logical priority sorting
+# ---------------------------------------------------------------------------
+
+class PriorityTableItem(QTableWidgetItem):
+    """A table item that sorts by priority *severity* rather than text.
+
+    Sorting falls back to alphabetical order only when two priorities share
+    the same weight (which normally never happens).
+    """
+
+    def __lt__(self, other: QTableWidgetItem) -> bool:
+        if isinstance(other, PriorityTableItem):
+            self_weight = _PRIORITY_WEIGHTS.get(self.text().upper(), -1)
+            other_weight = _PRIORITY_WEIGHTS.get(other.text().upper(), -1)
+            if self_weight != other_weight:
+                return self_weight < other_weight
+        return super().__lt__(other)
+
+
+def _serialize_result(result: dict[str, Any]) -> dict[str, Any]:
+    """Convert a LangGraph result (with Pydantic models) into a plain dict.
+
+    The returned structure is JSON-serialisable and is what gets stored in
+    the ``extracted_json`` column and rendered in the detail panel.
+    """
+    payload: dict[str, Any] = {}
+    for key in ("routing_data", "city_notice", "maintenance", "dispute"):
+        value = result.get(key)
+        payload[key] = value.model_dump() if value is not None else None
+    error = result.get("error")
+    if error:
+        payload["error"] = str(error)
+    return payload
 
 
 # ---------------------------------------------------------------------------
@@ -179,6 +267,74 @@ class ProcessEmailWorker(QThread):
             self.error.emit(str(exc))
 
 
+class SaveTicketWorker(QThread):
+    """Persist a single ticket to SQLite, then return all tickets.
+
+    Keeping the write (and the follow-up read) on a background thread ensures
+    the UI never blocks on database I/O.
+    """
+
+    finished = pyqtSignal(list)
+    error = pyqtSignal(str)
+
+    def __init__(
+        self,
+        db: Database,
+        ticket: dict[str, Any],
+        parent: QThread | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._db = db
+        self._ticket = ticket
+
+    def run(self) -> None:
+        try:
+            self._db.insert_ticket(**self._ticket)
+            self.finished.emit(self._db.get_all_tickets())
+        except Exception as exc:
+            logger.exception("Ticket save failed")
+            self.error.emit(str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Settings dialog
+# ---------------------------------------------------------------------------
+
+class SettingsDialog(QDialog):
+    """Lets the user configure the auto-fetch interval (in minutes)."""
+
+    def __init__(self, current_interval: int, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Settings")
+        self.setMinimumWidth(360)
+
+        layout = QVBoxLayout(self)
+
+        form = QFormLayout()
+        self._interval_spin = QSpinBox()
+        self._interval_spin.setRange(0, 1440)
+        self._interval_spin.setValue(current_interval)
+        self._interval_spin.setSuffix(" min")
+        self._interval_spin.setToolTip("Set to 0 to disable automatic fetching.")
+        form.addRow("Auto-Fetch Interval:", self._interval_spin)
+        layout.addLayout(form)
+
+        hint = QLabel("Set to 0 to disable automatic fetching.")
+        hint.setStyleSheet("color:#a6adc8; font-size:11px;")
+        layout.addWidget(hint)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def interval_minutes(self) -> int:
+        return self._interval_spin.value()
+
+
 # ---------------------------------------------------------------------------
 # Main window
 # ---------------------------------------------------------------------------
@@ -191,16 +347,33 @@ class InboxSupervisorWindow(QMainWindow):
         self.setWindowTitle("Property Manager — Inbox Supervisor")
         self.setMinimumSize(1200, 700)
 
-        self._processed_results: list[dict[str, Any]] = []
         self._pending_emails: list[dict[str, str]] = []
         self._current_worker: ProcessEmailWorker | None = None
+        self._save_worker: SaveTicketWorker | None = None
+        self._processed_count = 0
+        self._batch_total = 0
+        self._is_fetching = False
+
+        # Persistence + preferences.
+        self._db = Database()
+        self._settings = QSettings(_SETTINGS_ORG, _SETTINGS_APP)
 
         self._build_ui()
         self.setStyleSheet(DARK_STYLE)
 
+        # Auto-fetch timer (started from the persisted interval).
+        self._auto_fetch_timer = QTimer(self)
+        self._auto_fetch_timer.timeout.connect(self._on_auto_fetch)
+        self._apply_auto_fetch_interval()
+
+        # Populate the table strictly from the database on startup.
+        self._refresh_table_from_db(self._db.get_all_tickets())
+
     # ---- UI construction ---------------------------------------------------
 
     def _build_ui(self) -> None:
+        self._build_menu_bar()
+
         central = QWidget()
         self.setCentralWidget(central)
         root_layout = QVBoxLayout(central)
@@ -212,6 +385,10 @@ class InboxSupervisorWindow(QMainWindow):
         title.setObjectName("title")
         title_bar.addWidget(title)
         title_bar.addStretch()
+
+        self._export_btn = QPushButton("Export to CSV")
+        self._export_btn.clicked.connect(self._on_export_clicked)
+        title_bar.addWidget(self._export_btn)
 
         self._fetch_btn = QPushButton("Fetch New Emails")
         self._fetch_btn.clicked.connect(self._on_fetch_clicked)
@@ -237,6 +414,7 @@ class InboxSupervisorWindow(QMainWindow):
         self._table.setAlternatingRowColors(True)
         self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self._table.setSortingEnabled(True)
         header = self._table.horizontalHeader()
         if header is not None:
             header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
@@ -267,9 +445,58 @@ class InboxSupervisorWindow(QMainWindow):
         self.setStatusBar(self._status_bar)
         self._status_bar.showMessage("Ready — click 'Fetch New Emails' to start.")
 
+    def _build_menu_bar(self) -> None:
+        menu_bar = self.menuBar()
+        if menu_bar is None:
+            return
+        settings_menu = menu_bar.addMenu("Settings")
+        if settings_menu is None:
+            return
+        settings_action = settings_menu.addAction("Auto-Fetch Interval...")
+        if settings_action is not None:
+            settings_action.triggered.connect(self._open_settings_dialog)
+
+    # ---- Settings / auto-fetch --------------------------------------------
+
+    def _stored_interval(self) -> int:
+        """Read the persisted auto-fetch interval (minutes) from QSettings."""
+        value = self._settings.value(_SETTINGS_INTERVAL_KEY, 0)
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return 0
+
+    def _open_settings_dialog(self) -> None:
+        dialog = SettingsDialog(self._stored_interval(), self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            minutes = dialog.interval_minutes()
+            self._settings.setValue(_SETTINGS_INTERVAL_KEY, minutes)
+            self._apply_auto_fetch_interval()
+
+    def _apply_auto_fetch_interval(self) -> None:
+        """(Re)start or stop the auto-fetch timer from the stored interval."""
+        minutes = self._stored_interval()
+        if minutes > 0:
+            self._auto_fetch_timer.start(minutes * 60 * 1000)
+            self._status_bar.showMessage(
+                f"Auto-fetch enabled — every {minutes} minute(s)."
+            )
+        else:
+            self._auto_fetch_timer.stop()
+
+    def _on_auto_fetch(self) -> None:
+        """Timer-driven fetch; skips if a fetch is already running."""
+        if self._is_fetching:
+            return
+        logger.info("Auto-fetch triggered")
+        self._on_fetch_clicked()
+
     # ---- Slots -------------------------------------------------------------
 
     def _on_fetch_clicked(self) -> None:
+        if self._is_fetching:
+            return
+        self._is_fetching = True
         self._fetch_btn.setEnabled(False)
         self._status_bar.showMessage("Connecting to mail server...")
         self._progress.setRange(0, 0)
@@ -283,28 +510,34 @@ class InboxSupervisorWindow(QMainWindow):
     def _on_emails_fetched(self, emails: list[dict[str, str]]) -> None:
         if not emails:
             self._status_bar.showMessage("No unread emails found.")
-            self._progress.setVisible(False)
-            self._fetch_btn.setEnabled(True)
+            self._end_fetch_cycle()
             return
 
         self._pending_emails = list(emails)
-        total = len(emails)
-        self._progress.setRange(0, total)
+        self._batch_total = len(emails)
+        self._processed_count = 0
+        self._progress.setRange(0, self._batch_total)
         self._progress.setValue(0)
-        self._status_bar.showMessage(f"Processing {total} email(s) through AI pipeline...")
+        self._status_bar.showMessage(
+            f"Processing {self._batch_total} email(s) through AI pipeline..."
+        )
         self._process_next_email()
 
     def _on_fetch_error(self, error_msg: str) -> None:
         self._status_bar.showMessage(f"Fetch error: {error_msg}")
+        self._end_fetch_cycle()
+
+    def _end_fetch_cycle(self) -> None:
+        """Reset UI state at the end of a fetch/process batch."""
         self._progress.setVisible(False)
         self._fetch_btn.setEnabled(True)
+        self._is_fetching = False
 
     def _process_next_email(self) -> None:
         if not self._pending_emails:
-            self._progress.setVisible(False)
-            self._fetch_btn.setEnabled(True)
+            self._end_fetch_cycle()
             self._status_bar.showMessage(
-                f"Done — {self._table.rowCount()} email(s) processed."
+                f"Done — {self._table.rowCount()} ticket(s) in database."
             )
             return
 
@@ -319,48 +552,154 @@ class InboxSupervisorWindow(QMainWindow):
     def _on_email_processed(
         self, email_data: dict[str, str], result: dict[str, Any]
     ) -> None:
-        self._processed_results.append(result)
+        self._advance_progress()
 
         routing = result.get("routing_data")
         classification = routing.classification if routing else "UNKNOWN"
-        priority = routing.priority_level if routing else "—"
-        address = routing.property_address if routing else "—"
-        subject = email_data.get("subject", "(no subject)")
 
-        row = self._table.rowCount()
-        self._table.insertRow(row)
+        # Task 1: strictly discard IGNORED emails — no DB row, no UI row.
+        if classification == "IGNORED":
+            logger.info("Discarding IGNORED email: %s", email_data.get("subject"))
+            self._process_next_email()
+            return
 
-        self._table.setItem(row, 0, QTableWidgetItem(subject))
+        priority = routing.priority_level if routing else ""
+        ticket = {
+            "email_id": email_data.get("email_id", ""),
+            "date_received": datetime.now().isoformat(timespec="seconds"),
+            "sender": email_data.get("sender", ""),
+            "subject": email_data.get("subject", "(no subject)"),
+            "classification": classification,
+            "priority": priority,
+            "extracted_json": json.dumps(_serialize_result(result)),
+        }
 
-        cls_item = QTableWidgetItem(classification)
-        cls_item.setForeground(QColor(_CLASSIFICATION_COLOURS.get(classification, "#cdd6f4")))
-        self._table.setItem(row, 1, cls_item)
+        # Task 2: persist to SQLite on a worker thread, then refresh from DB.
+        self._save_worker = SaveTicketWorker(self._db, ticket)
+        self._save_worker.finished.connect(self._on_ticket_saved)
+        self._save_worker.error.connect(self._on_save_error)
+        self._save_worker.start()
 
-        pri_item = QTableWidgetItem(priority)
-        pri_item.setForeground(QColor(_PRIORITY_COLOURS.get(priority, "#cdd6f4")))
-        self._table.setItem(row, 2, pri_item)
+    def _on_ticket_saved(self, tickets: list[dict[str, Any]]) -> None:
+        self._refresh_table_from_db(tickets)
+        self._process_next_email()
 
-        self._table.setItem(row, 3, QTableWidgetItem(address))
-
-        # Advance progress
-        processed_count = len(self._processed_results)
-        self._progress.setValue(processed_count)
-        self._status_bar.showMessage(
-            f"Processed {processed_count} / "
-            f"{processed_count + len(self._pending_emails)} email(s)..."
-        )
+    def _on_save_error(self, error_msg: str) -> None:
+        self._status_bar.showMessage(f"Database error: {error_msg}")
         self._process_next_email()
 
     def _on_process_error(self, error_msg: str) -> None:
         self._status_bar.showMessage(f"Processing error: {error_msg}")
-        processed_count = len(self._processed_results)
-        self._progress.setValue(processed_count)
+        self._advance_progress()
         self._process_next_email()
 
+    def _advance_progress(self) -> None:
+        self._processed_count += 1
+        self._progress.setValue(self._processed_count)
+        self._status_bar.showMessage(
+            f"Processed {self._processed_count} / {self._batch_total} email(s)..."
+        )
+
+    # ---- Table population (from the database) ------------------------------
+
+    def _refresh_table_from_db(self, tickets: list[dict[str, Any]]) -> None:
+        """Rebuild the table strictly from database rows.
+
+        Sorting is disabled during insertion (so row indices stay stable while
+        populating) and re-enabled afterwards. Each row stashes its parsed
+        ``extracted_json`` on the column-0 item so the detail panel survives
+        re-sorting.
+        """
+        self._table.setSortingEnabled(False)
+        self._table.setRowCount(0)
+
+        for ticket in tickets:
+            payload = self._parse_payload(ticket.get("extracted_json"))
+            routing = payload.get("routing_data") or {}
+            classification = ticket.get("classification", "")
+            priority = ticket.get("priority", "")
+            address = routing.get("property_address", "") or "—"
+
+            row = self._table.rowCount()
+            self._table.insertRow(row)
+
+            subject_item = QTableWidgetItem(ticket.get("subject", "(no subject)"))
+            subject_item.setData(Qt.ItemDataRole.UserRole, json.dumps(payload))
+            self._table.setItem(row, 0, subject_item)
+
+            cls_item = QTableWidgetItem(classification)
+            cls_item.setForeground(
+                QColor(_CLASSIFICATION_COLOURS.get(classification, "#cdd6f4"))
+            )
+            self._table.setItem(row, 1, cls_item)
+
+            pri_item = PriorityTableItem(priority)
+            pri_item.setForeground(
+                QColor(_PRIORITY_COLOURS.get(priority.upper(), "#cdd6f4"))
+            )
+            self._table.setItem(row, 2, pri_item)
+
+            self._table.setItem(row, 3, QTableWidgetItem(address))
+
+        self._table.setSortingEnabled(True)
+
+    @staticmethod
+    def _parse_payload(raw: Any) -> dict[str, Any]:
+        if not raw:
+            return {}
+        try:
+            data = json.loads(raw)
+            return data if isinstance(data, dict) else {}
+        except (TypeError, ValueError):
+            return {}
+
     def _on_row_selected(self, row: int, _col: int, _prev_row: int, _prev_col: int) -> None:
-        if 0 <= row < len(self._processed_results):
-            result = self._processed_results[row]
-            self._detail_view.setHtml(self._format_result(result))
+        if row < 0:
+            return
+        item = self._table.item(row, 0)
+        if item is None:
+            return
+        payload = self._parse_payload(item.data(Qt.ItemDataRole.UserRole))
+        self._detail_view.setHtml(self._format_result(payload))
+
+    # ---- CSV export --------------------------------------------------------
+
+    def _on_export_clicked(self) -> None:
+        tickets = self._db.get_all_tickets()
+        if not tickets:
+            QMessageBox.information(
+                self, "Export to CSV", "There are no tickets to export yet."
+            )
+            return
+
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export Tickets to CSV", "tickets.csv", "CSV Files (*.csv)"
+        )
+        if not path:
+            return
+
+        columns = [
+            "id",
+            "email_id",
+            "date_received",
+            "sender",
+            "subject",
+            "classification",
+            "priority",
+            "extracted_json",
+            "status",
+        ]
+        try:
+            with open(path, "w", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(f, fieldnames=columns)
+                writer.writeheader()
+                for ticket in tickets:
+                    writer.writerow({col: ticket.get(col, "") for col in columns})
+        except OSError as exc:
+            QMessageBox.critical(self, "Export Failed", f"Could not write file:\n{exc}")
+            return
+
+        self._status_bar.showMessage(f"Exported {len(tickets)} ticket(s) to {path}")
 
     # ---- Helpers -----------------------------------------------------------
 
@@ -398,10 +737,14 @@ class InboxSupervisorWindow(QMainWindow):
     )
 
     def _format_result(self, result: dict[str, Any]) -> str:
-        """Format a pipeline result as human-readable HTML for the detail panel."""
+        """Format a serialized result as human-readable HTML for the detail panel.
+
+        ``result`` is the plain-dict payload produced by :func:`_serialize_result`
+        (i.e. what is stored in the ``extracted_json`` column).
+        """
         routing = result.get("routing_data")
 
-        if routing is None:
+        if not routing:
             error = result.get("error")
             if error:
                 return (
@@ -411,7 +754,7 @@ class InboxSupervisorWindow(QMainWindow):
             return "<p style='color:#a6adc8;'>No details available.</p>"
 
         # Ignored emails get a clean, friendly message with no extracted fields.
-        if routing.classification == "IGNORED":
+        if routing.get("classification") == "IGNORED":
             return (
                 "<p style='color:#a6adc8; font-size:14px; margin-top:8px;'>"
                 "This email was classified as unrelated to property management "
@@ -423,7 +766,7 @@ class InboxSupervisorWindow(QMainWindow):
         # Overview: classification + priority + address (hide backend fields).
         overview = {
             key: val
-            for key, val in routing.model_dump().items()
+            for key, val in routing.items()
             if key not in self._HIDDEN_FIELDS
         }
         sections.append(self._render_section("Overview", overview))
@@ -436,10 +779,10 @@ class InboxSupervisorWindow(QMainWindow):
         }
         for key, title in specialist_titles.items():
             value = result.get(key)
-            if value is not None:
+            if value:
                 data = {
                     k: v
-                    for k, v in value.model_dump().items()
+                    for k, v in value.items()
                     if k not in self._HIDDEN_FIELDS
                 }
                 sections.append(self._render_section(title, data))

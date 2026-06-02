@@ -11,6 +11,10 @@ __pycache__/
 credentials.json
 token.json
 
+# SQLite database
+*.db
+property_manager.db
+
 # PyInstaller
 build/
 dist/
