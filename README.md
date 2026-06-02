@@ -18,15 +18,15 @@ A native desktop application that connects to Gmail via OAuth2, fetches unread e
 │  (OAuth2)   │     │              │     │                                   │
 └─────────────┘     └──────────────┘     │  Supervisor ──▶ Conditional Edge  │
                                          │       │                           │
-                                         │  ┌────┴────┬──────────┐          │
-                                         │  ▼         ▼          ▼          │
-                                         │ Legal   Maintenance  Dispute     │
-                                         │ Agent     Agent       Agent      │
+                                         │  ┌────┴────┬──────────┐           │
+                                         │  ▼         ▼          ▼           │
+                                         │ Legal   Maintenance  Dispute      │
+                                         │ Agent     Agent       Agent       │
                                          └───────────────────────────────────┘
                                                         │
                                                         ▼
                                               ┌──────────────────┐
-                                              │  PyQt6 Dashboard  │
+                                              │  PyQt6 Dashboard │
                                               └──────────────────┘
 ```
 
