@@ -38,6 +38,9 @@ class CityNoticeSchema(BaseModel):
     deadline: str = Field(default="", description="Compliance deadline if stated (ISO-8601 date)")
     violation_description: str = Field(description="Summary of the violation or notice content")
     required_action: str = Field(description="Action the property manager must take")
+    entity_name: str = Field(default="", description="Name of the contact person or official at the issuing authority")
+    entity_phone: str = Field(default="", description="Contact phone number for the issuing authority")
+    entity_email: str = Field(default="", description="Contact email address for the issuing authority")
 
 
 class MaintenanceSchema(BaseModel):
