@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import base64
 import logging
-import os
 from typing import Any
 
 from google.auth.transport.requests import Request
@@ -12,28 +11,21 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build, Resource
 
+from src.paths import get_app_file
+
 logger = logging.getLogger(__name__)
 
 SCOPES: list[str] = ["https://www.googleapis.com/auth/gmail.readonly"]
 
 
-def _get_app_dir() -> str:
-    """Return the directory where the executable is running.
-
-    Uses ``os.getcwd()`` so that ``credentials.json`` and ``token.json``
-    are always read from / written to the working directory of the
-    running process — this avoids breakage inside PyInstaller's
-    ``_MEIPASS`` temp folder.
-    """
-    return os.getcwd()
-
-
 def _credentials_path() -> str:
-    return os.path.join(_get_app_dir(), "credentials.json")
+    """Path to ``credentials.json`` in the user-level application directory."""
+    return str(get_app_file("credentials.json"))
 
 
 def _token_path() -> str:
-    return os.path.join(_get_app_dir(), "token.json")
+    """Path to ``token.json`` in the user-level application directory."""
+    return str(get_app_file("token.json"))
 
 
 class EmailFetcher:
