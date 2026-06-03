@@ -8,9 +8,10 @@ own short-lived connection so the class is safe to call from multiple
 from __future__ import annotations
 
 import logging
-import os
 import sqlite3
 from typing import Any
+
+from src.paths import get_app_file
 
 logger = logging.getLogger(__name__)
 
@@ -18,13 +19,13 @@ DB_FILENAME = "property_manager.db"
 
 
 def _default_db_path() -> str:
-    """Place the database file next to the running executable / working dir.
+    """Return the database path inside the user-level application directory.
 
-    Uses ``os.getcwd()`` for the same PyInstaller-safe reason the Gmail
-    client does: it avoids the ``_MEIPASS`` temp folder so the file lives
-    where the user runs the app.
+    Stored in ``~/.property_manager_ai`` (via :func:`src.paths.get_app_file`)
+    so it is stable across platforms and survives being packaged into a macOS
+    ``.app`` bundle, where ``os.getcwd()`` is unreliable.
     """
-    return os.path.join(os.getcwd(), DB_FILENAME)
+    return str(get_app_file(DB_FILENAME))
 
 
 class Database:

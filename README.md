@@ -43,21 +43,35 @@ A native desktop application that connects to Gmail via OAuth2, fetches unread e
 pip install -r requirements.txt
 ```
 
-### 2. Set up Gmail API credentials
+### 2. Application data directory
+
+All user data lives in a single hidden folder in your home directory, created automatically on first launch:
+
+```
+~/.property_manager_ai/
+├── .env               # your configuration (you provide this)
+├── credentials.json   # OAuth2 client credentials (you provide this)
+├── token.json         # OAuth2 refresh token (auto-generated)
+└── property_manager.db # SQLite database (auto-generated)
+```
+
+This works identically on macOS, Windows, and Linux — and survives being packaged into a macOS `.app` bundle.
+
+### 3. Set up Gmail API credentials
 
 1. Go to [Google Cloud Console](https://console.cloud.google.com/)
 2. Create a project and enable the **Gmail API**
 3. Create **OAuth 2.0 Client ID** credentials (Desktop application type)
-4. Download the JSON file and save it as `credentials.json` in the application directory
+4. Download the JSON file and save it as `credentials.json` in `~/.property_manager_ai/`
 
-### 3. Configure environment
+### 4. Configure environment
 
 ```bash
-cp .env.example .env
-# Edit .env with your Gemini API key and email address
+cp .env.example ~/.property_manager_ai/.env
+# Edit ~/.property_manager_ai/.env with your Gemini API key and email address
 ```
 
-### 4. Run the application
+### 5. Run the application
 
 ```bash
 python main.py
@@ -65,13 +79,21 @@ python main.py
 
 On first run, a browser window will open for Gmail OAuth2 authorization. After granting access, a `token.json` file will be saved for subsequent runs.
 
-### 5. Build standalone executable (Windows)
+### 6. Build a standalone bundle
+
+**Windows:**
 
 ```batch
 build.bat
 ```
 
-> **Note:** Place `credentials.json` in the same directory as the built executable. The `token.json` will also be created there after the first OAuth2 login.
+**macOS** (produces `dist/Inbox Supervisor.app`):
+
+```bash
+./build_mac.sh
+```
+
+> **Note:** The bundle reads its data from `~/.property_manager_ai/`, so place your `.env` and `credentials.json` there before first launch.
 
 ## Project Structure
 
@@ -83,14 +105,15 @@ build.bat
 │   ├── email_client.py  # Gmail API OAuth2 connection and fetching
 │   ├── agents.py        # LangGraph nodes and graph compilation
 │   ├── database.py      # SQLite persistence (tickets table + DAO methods)
+│   ├── paths.py         # Cross-platform application data directory helper
 │   └── ui.py            # PyQt6 dashboard and QThread workers
-├── credentials.json     # OAuth2 client credentials (not committed)
-├── token.json           # OAuth2 refresh token (auto-generated, not committed)
-├── property_manager.db  # SQLite database (auto-generated, not committed)
 ├── .env.example         # Environment variable template
 ├── requirements.txt     # Python dependencies
-└── build.bat            # PyInstaller build script
+├── build.bat            # PyInstaller build script (Windows)
+└── build_mac.sh         # PyInstaller build script (macOS .app bundle)
 ```
+
+> User data (`.env`, `credentials.json`, `token.json`, `property_manager.db`) lives in `~/.property_manager_ai/`, not in the project directory.
 
 ## Environment Variables
 

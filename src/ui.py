@@ -467,6 +467,9 @@ class InboxSupervisorWindow(QMainWindow):
         menu_bar = self.menuBar()
         if menu_bar is None:
             return
+        # Push the menu to the global macOS menu bar at the top of the screen
+        # (no-op on Windows/Linux, where the menu stays in the window).
+        menu_bar.setNativeMenuBar(True)
         settings_menu = menu_bar.addMenu("Settings")
         if settings_menu is None:
             return
