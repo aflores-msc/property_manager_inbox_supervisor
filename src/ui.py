@@ -193,6 +193,23 @@ class PriorityTableItem(QTableWidgetItem):
         return super().__lt__(other)
 
 
+class DateTableItem(QTableWidgetItem):
+    """A table item that stores the original ISO date string but displays it nicely, and sorts logically."""
+    
+    def __init__(self, iso_date_str: str) -> None:
+        super().__init__()
+        self._iso_date = iso_date_str
+        try:
+            dt = datetime.fromisoformat(iso_date_str)
+            self.setText(dt.strftime("%b %d, %Y %I:%M %p"))
+        except (ValueError, TypeError):
+            self.setText(iso_date_str)
+
+    def __lt__(self, other: QTableWidgetItem) -> bool:
+        if isinstance(other, DateTableItem):
+            return self._iso_date < other._iso_date
+        return super().__lt__(other)
+
 def _serialize_result(result: dict[str, Any]) -> dict[str, Any]:
     """Convert a LangGraph result (with Pydantic models) into a plain dict.
 
@@ -407,9 +424,9 @@ class InboxSupervisorWindow(QMainWindow):
 
         # Left: table
         self._table = QTableWidget()
-        self._table.setColumnCount(4)
+        self._table.setColumnCount(5)
         self._table.setHorizontalHeaderLabels(
-            ["Subject", "Classification", "Priority", "Property Address"]
+            ["Received Date", "Subject", "Classification", "Priority", "Property Address"]
         )
         self._table.setAlternatingRowColors(True)
         self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
@@ -417,10 +434,11 @@ class InboxSupervisorWindow(QMainWindow):
         self._table.setSortingEnabled(True)
         header = self._table.horizontalHeader()
         if header is not None:
-            header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-            header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+            header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+            header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
             header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-            header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+            header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+            header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
         self._table.currentCellChanged.connect(self._on_row_selected)
         splitter.addWidget(self._table)
 
@@ -619,27 +637,31 @@ class InboxSupervisorWindow(QMainWindow):
             classification = ticket.get("classification", "")
             priority = ticket.get("priority", "")
             address = routing.get("property_address", "") or "—"
+            date_received = ticket.get("date_received", "")
 
             row = self._table.rowCount()
             self._table.insertRow(row)
+            
+            date_item = DateTableItem(date_received)
+            date_item.setData(Qt.ItemDataRole.UserRole, json.dumps(payload))
+            self._table.setItem(row, 0, date_item)
 
             subject_item = QTableWidgetItem(ticket.get("subject", "(no subject)"))
-            subject_item.setData(Qt.ItemDataRole.UserRole, json.dumps(payload))
-            self._table.setItem(row, 0, subject_item)
+            self._table.setItem(row, 1, subject_item)
 
             cls_item = QTableWidgetItem(classification)
             cls_item.setForeground(
                 QColor(_CLASSIFICATION_COLOURS.get(classification, "#cdd6f4"))
             )
-            self._table.setItem(row, 1, cls_item)
+            self._table.setItem(row, 2, cls_item)
 
             pri_item = PriorityTableItem(priority)
             pri_item.setForeground(
                 QColor(_PRIORITY_COLOURS.get(priority.upper(), "#cdd6f4"))
             )
-            self._table.setItem(row, 2, pri_item)
+            self._table.setItem(row, 3, pri_item)
 
-            self._table.setItem(row, 3, QTableWidgetItem(address))
+            self._table.setItem(row, 4, QTableWidgetItem(address))
 
         self._table.setSortingEnabled(True)
 
@@ -678,28 +700,76 @@ class InboxSupervisorWindow(QMainWindow):
         if not path:
             return
 
-        columns = [
-            "id",
-            "email_id",
-            "date_received",
-            "sender",
-            "subject",
-            "classification",
-            "priority",
-            "extracted_json",
-            "status",
-        ]
+        # Flatten each ticket into {human-readable header: value}. Building the
+        # rows first lets us collect the full union of headers (standard columns
+        # plus every nested key found in any row).
+        rows = [self._flatten_ticket(t) for t in tickets]
+        headers: list[str] = []
+        seen: set[str] = set()
+        for row in rows:
+            for header in row:
+                if header not in seen:
+                    seen.add(header)
+                    headers.append(header)
+
         try:
             with open(path, "w", newline="", encoding="utf-8") as f:
-                writer = csv.DictWriter(f, fieldnames=columns)
+                writer = csv.DictWriter(f, fieldnames=headers)
                 writer.writeheader()
-                for ticket in tickets:
-                    writer.writerow({col: ticket.get(col, "") for col in columns})
+                # Missing keys default to "" so e.g. a Maintenance ticket leaves
+                # the "Max Potential Fine" cell blank rather than erroring.
+                writer.writerows(rows)
         except OSError as exc:
             QMessageBox.critical(self, "Export Failed", f"Could not write file:\n{exc}")
             return
 
         self._status_bar.showMessage(f"Exported {len(tickets)} ticket(s) to {path}")
+
+    # Standard ticket columns, in export order: (db key, human-readable header).
+    _CSV_STANDARD_COLUMNS: tuple[tuple[str, str], ...] = (
+        ("date_received", "Date"),
+        ("sender", "Sender"),
+        ("subject", "Subject"),
+        ("classification", "Classification"),
+        ("priority", "Priority"),
+        ("status", "Status"),
+    )
+
+    # Nested keys that should never be exported (backend fields + duplicates of
+    # the standard columns above).
+    _CSV_SKIP_KEYS: frozenset[str] = frozenset(
+        {"email_id", "sender_type", "original_email_text", "classification", "priority_level"}
+    )
+
+    def _flatten_ticket(self, ticket: dict[str, Any]) -> dict[str, str]:
+        """Flatten one DB row into {human-readable header: value}.
+
+        Standard columns come first, followed by every key parsed out of the
+        ``extracted_json`` payload. Empty / malformed JSON is handled gracefully.
+        """
+        flat: dict[str, str] = {}
+        for db_key, header in self._CSV_STANDARD_COLUMNS:
+            flat[header] = self._csv_value(ticket.get(db_key, ""))
+
+        payload = self._parse_payload(ticket.get("extracted_json"))
+        for section in ("routing_data", "city_notice", "maintenance", "dispute"):
+            data = payload.get(section)
+            if not isinstance(data, dict):
+                continue
+            for key, value in data.items():
+                if key in self._CSV_SKIP_KEYS:
+                    continue
+                flat[self._humanize(key)] = self._csv_value(value)
+        return flat
+
+    @staticmethod
+    def _csv_value(value: Any) -> str:
+        """Render a value for a CSV cell (bools as Yes/No, blanks for empty)."""
+        if value is None:
+            return ""
+        if isinstance(value, bool):
+            return "Yes" if value else "No"
+        return str(value).strip()
 
     # ---- Helpers -----------------------------------------------------------
 
