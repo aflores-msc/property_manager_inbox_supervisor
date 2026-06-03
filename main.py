@@ -1,4 +1,4 @@
-"""Application entry point for the Property Manager Inbox Supervisor."""
+"""Application entry point for Estate Beacon."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from src.ui import InboxSupervisorWindow
 
 
 def main() -> None:
-    """Launch the Inbox Supervisor desktop application."""
+    """Launch the Estate Beacon desktop application."""
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",

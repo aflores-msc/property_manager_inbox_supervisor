@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
-# Build a native macOS .app bundle for the Property Manager Inbox Supervisor.
+# Build a native macOS .app bundle for Estate Beacon.
 #
-# Produces "dist/Inbox Supervisor.app". The --windowed flag makes it a GUI
+# Produces "dist/Estate Beacon.app". The --windowed flag makes it a GUI
 # app bundle so no Terminal window opens in the background.
 #
 # User data (.env, credentials.json, token.json, property_manager.db) is read
@@ -10,7 +10,7 @@
 
 set -euo pipefail
 
-APP_NAME="Inbox Supervisor"
+APP_NAME="Estate Beacon"
 ICON_FILE="icon.icns"
 
 echo "Building ${APP_NAME}.app..."

@@ -79,7 +79,7 @@ class Database:
             conn.execute("ALTER TABLE tickets ADD COLUMN raw_body TEXT")
             conn.commit()
             print(
-                "[Inbox Supervisor] Database upgraded: added 'raw_body' column. "
+                "[Estate Beacon] Database upgraded: added 'raw_body' column. "
                 "Existing tickets will show no original email body until they are "
                 "re-fetched. If you prefer a clean slate, delete "
                 f"{self._db_path} and it will be recreated with the new schema."
