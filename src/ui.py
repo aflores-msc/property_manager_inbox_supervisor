@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import Any
 
 from PyQt6.QtCore import QSettings, QThread, QTimer, pyqtSignal, Qt
-from PyQt6.QtGui import QColor, QFont
+from PyQt6.QtGui import QBrush, QColor, QFont
 from PyQt6.QtWidgets import (
     QApplication,
     QDialog,
@@ -173,6 +173,10 @@ _CLASSIFICATION_COLOURS: dict[str, str] = {
     "IGNORED": "#6c7086",
 }
 
+# Background for newly-fetched (unread) rows. A muted dark blue that keeps the
+# light foreground text (#cdd6f4) highly readable in dark mode.
+_UNREAD_ROW_BG = "#1e3a8a"
+
 # Global mapping of backend/JSON keys to user-friendly display labels. Used by
 # both the "Extracted Details" panel and the CSV export so the two stay in sync.
 # Any key not listed here falls back to a generic snake_case -> Title Case clean-up.
@@ -298,10 +302,12 @@ class SaveTicketWorker(QThread):
     """Persist a single ticket to SQLite, then return all tickets.
 
     Keeping the write (and the follow-up read) on a background thread ensures
-    the UI never blocks on database I/O.
+    the UI never blocks on database I/O. ``finished`` emits ``(all_tickets,
+    new_email_ids)`` where ``new_email_ids`` holds the email_id only when this
+    save actually inserted a new row (so the UI can highlight it as unread).
     """
 
-    finished = pyqtSignal(list)
+    finished = pyqtSignal(list, list)
     error = pyqtSignal(str)
 
     def __init__(
@@ -316,8 +322,9 @@ class SaveTicketWorker(QThread):
 
     def run(self) -> None:
         try:
-            self._db.insert_ticket(**self._ticket)
-            self.finished.emit(self._db.get_all_tickets())
+            inserted = self._db.insert_ticket(**self._ticket)
+            new_ids = [self._ticket["email_id"]] if inserted else []
+            self.finished.emit(self._db.get_all_tickets(), new_ids)
         except Exception as exc:
             logger.exception("Ticket save failed")
             self.error.emit(str(exc))
@@ -427,6 +434,8 @@ class InboxSupervisorWindow(QMainWindow):
         self._is_fetching = False
         self._selected_email_id = ""
         self._raw_email_dialogs: list[QDialog] = []
+        # Email ids fetched this session that the user has not yet opened.
+        self.unread_email_ids: set[str] = set()
 
         # Persistence + preferences.
         self._db = Database()
@@ -665,7 +674,11 @@ class InboxSupervisorWindow(QMainWindow):
         self._save_worker.error.connect(self._on_save_error)
         self._save_worker.start()
 
-    def _on_ticket_saved(self, tickets: list[dict[str, Any]]) -> None:
+    def _on_ticket_saved(
+        self, tickets: list[dict[str, Any]], new_ids: list[str]
+    ) -> None:
+        # Track freshly-inserted emails so their rows render highlighted.
+        self.unread_email_ids.update(eid for eid in new_ids if eid)
         self._refresh_table_from_db(tickets)
         self._process_next_email()
 
@@ -731,7 +744,25 @@ class InboxSupervisorWindow(QMainWindow):
 
             self._table.setItem(row, 4, QTableWidgetItem(address))
 
+            # Highlight unread rows; explicitly clear the background otherwise
+            # so rebuilt rows never inherit a stale highlight.
+            self._set_row_background(
+                row, ticket.get("email_id", "") in self.unread_email_ids
+            )
+
         self._table.setSortingEnabled(True)
+
+    def _set_row_background(self, row: int, unread: bool) -> None:
+        """Paint (or clear) the background for every cell in ``row``.
+
+        An empty ``QBrush`` resets the item to the table's default background,
+        keeping dark-mode styling intact for read rows.
+        """
+        brush = QBrush(QColor(_UNREAD_ROW_BG)) if unread else QBrush()
+        for col in range(self._table.columnCount()):
+            item = self._table.item(row, col)
+            if item is not None:
+                item.setBackground(brush)
 
     def _on_view_original_email(self) -> None:
         """Open a read-only window showing the selected ticket's raw email body.
@@ -780,6 +811,12 @@ class InboxSupervisorWindow(QMainWindow):
         self._detail_view.setHtml(self._format_result(payload))
         self._selected_email_id = item.data(Qt.ItemDataRole.UserRole + 1) or ""
         self._view_email_btn.setEnabled(bool(self._selected_email_id))
+
+        # Opening a row marks it read: drop it from the unread set and reset
+        # the row's cell backgrounds to the default table background.
+        if self._selected_email_id in self.unread_email_ids:
+            self.unread_email_ids.discard(self._selected_email_id)
+            self._set_row_background(row, unread=False)
 
     # ---- CSV export --------------------------------------------------------
 
