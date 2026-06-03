@@ -29,6 +29,7 @@ from PyQt6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QTextBrowser,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -313,6 +314,51 @@ class SaveTicketWorker(QThread):
             self.error.emit(str(exc))
 
 
+class RawBodyWorker(QThread):
+    """Fetch a single ticket's raw email body off the UI thread."""
+
+    finished = pyqtSignal(str)
+    error = pyqtSignal(str)
+
+    def __init__(self, db: Database, email_id: str, parent: QThread | None = None) -> None:
+        super().__init__(parent)
+        self._db = db
+        self._email_id = email_id
+
+    def run(self) -> None:
+        try:
+            self.finished.emit(self._db.get_raw_body(self._email_id))
+        except Exception as exc:
+            logger.exception("Raw body lookup failed")
+            self.error.emit(str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Raw email viewer dialog
+# ---------------------------------------------------------------------------
+
+class RawEmailDialog(QDialog):
+    """A clean, read-only window showing the original plain-text email body."""
+
+    def __init__(self, raw_body: str, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Original Email")
+        self.resize(700, 500)
+
+        layout = QVBoxLayout(self)
+
+        text = QTextEdit()
+        text.setReadOnly(True)
+        text.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
+        text.setPlainText(raw_body or "(No original email body was stored for this ticket.)")
+        layout.addWidget(text)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        buttons.rejected.connect(self.reject)
+        buttons.accepted.connect(self.accept)
+        layout.addWidget(buttons)
+
+
 # ---------------------------------------------------------------------------
 # Settings dialog
 # ---------------------------------------------------------------------------
@@ -370,6 +416,8 @@ class InboxSupervisorWindow(QMainWindow):
         self._processed_count = 0
         self._batch_total = 0
         self._is_fetching = False
+        self._selected_email_id = ""
+        self._raw_email_dialogs: list[QDialog] = []
 
         # Persistence + preferences.
         self._db = Database()
@@ -453,6 +501,12 @@ class InboxSupervisorWindow(QMainWindow):
         self._detail_view.setReadOnly(True)
         self._detail_view.setOpenExternalLinks(False)
         detail_layout.addWidget(self._detail_view)
+
+        # "View Original Email" — disabled until a valid row is selected.
+        self._view_email_btn = QPushButton("View Original Email")
+        self._view_email_btn.setEnabled(False)
+        self._view_email_btn.clicked.connect(self._on_view_original_email)
+        detail_layout.addWidget(self._view_email_btn)
         splitter.addWidget(detail_widget)
 
         splitter.setSizes([700, 500])
@@ -593,6 +647,7 @@ class InboxSupervisorWindow(QMainWindow):
             "classification": classification,
             "priority": priority,
             "extracted_json": json.dumps(_serialize_result(result)),
+            "raw_body": email_data.get("body", ""),
         }
 
         # Task 2: persist to SQLite on a worker thread, then refresh from DB.
@@ -647,6 +702,7 @@ class InboxSupervisorWindow(QMainWindow):
             
             date_item = DateTableItem(date_received)
             date_item.setData(Qt.ItemDataRole.UserRole, json.dumps(payload))
+            date_item.setData(Qt.ItemDataRole.UserRole + 1, ticket.get("email_id", ""))
             self._table.setItem(row, 0, date_item)
 
             subject_item = QTableWidgetItem(ticket.get("subject", "(no subject)"))
@@ -668,6 +724,33 @@ class InboxSupervisorWindow(QMainWindow):
 
         self._table.setSortingEnabled(True)
 
+    def _on_view_original_email(self) -> None:
+        """Open a read-only window showing the selected ticket's raw email body.
+
+        The (single-row) database read runs on a short-lived worker thread so
+        the UI thread never blocks, and the dialog is shown non-modally.
+        """
+        email_id = self._selected_email_id
+        if not email_id:
+            return
+        self._view_email_btn.setEnabled(False)
+        self._raw_body_worker = RawBodyWorker(self._db, email_id)
+        self._raw_body_worker.finished.connect(self._show_raw_email_dialog)
+        self._raw_body_worker.error.connect(self._on_raw_body_error)
+        self._raw_body_worker.start()
+
+    def _show_raw_email_dialog(self, raw_body: str) -> None:
+        self._view_email_btn.setEnabled(bool(self._selected_email_id))
+        dialog = RawEmailDialog(raw_body, self)
+        # Keep a reference so the non-modal dialog is not garbage-collected.
+        self._raw_email_dialogs.append(dialog)
+        dialog.finished.connect(lambda _=0, d=dialog: self._raw_email_dialogs.remove(d))
+        dialog.show()
+
+    def _on_raw_body_error(self, message: str) -> None:
+        self._view_email_btn.setEnabled(bool(self._selected_email_id))
+        QMessageBox.warning(self, "View Original Email", message)
+
     @staticmethod
     def _parse_payload(raw: Any) -> dict[str, Any]:
         if not raw:
@@ -686,6 +769,8 @@ class InboxSupervisorWindow(QMainWindow):
             return
         payload = self._parse_payload(item.data(Qt.ItemDataRole.UserRole))
         self._detail_view.setHtml(self._format_result(payload))
+        self._selected_email_id = item.data(Qt.ItemDataRole.UserRole + 1) or ""
+        self._view_email_btn.setEnabled(bool(self._selected_email_id))
 
     # ---- CSV export --------------------------------------------------------
 

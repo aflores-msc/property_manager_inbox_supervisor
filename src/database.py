@@ -45,7 +45,12 @@ class Database:
     # ---- schema ------------------------------------------------------------
 
     def initialize(self) -> None:
-        """Create the ``tickets`` table on first run (idempotent)."""
+        """Create the ``tickets`` table on first run (idempotent).
+
+        Also runs a lightweight migration that adds the ``raw_body`` column
+        to pre-existing databases via ``ALTER TABLE`` so users do not have to
+        delete their ``property_manager.db`` to pick up the new schema.
+        """
         with self._connect() as conn:
             conn.execute(
                 """
@@ -58,12 +63,27 @@ class Database:
                     classification TEXT,
                     priority TEXT,
                     extracted_json TEXT,
+                    raw_body TEXT,
                     status TEXT DEFAULT 'OPEN'
                 )
                 """
             )
             conn.commit()
+            self._migrate_raw_body(conn)
         logger.info("Database initialized at %s", self._db_path)
+
+    def _migrate_raw_body(self, conn: sqlite3.Connection) -> None:
+        """Add the ``raw_body`` column to legacy databases if missing."""
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(tickets)")}
+        if "raw_body" not in columns:
+            conn.execute("ALTER TABLE tickets ADD COLUMN raw_body TEXT")
+            conn.commit()
+            print(
+                "[Inbox Supervisor] Database upgraded: added 'raw_body' column. "
+                "Existing tickets will show no original email body until they are "
+                "re-fetched. If you prefer a clean slate, delete "
+                f"{self._db_path} and it will be recreated with the new schema."
+            )
 
     # ---- DAO methods -------------------------------------------------------
 
@@ -76,20 +96,22 @@ class Database:
         classification: str,
         priority: str,
         extracted_json: str,
+        raw_body: str = "",
         status: str = "OPEN",
     ) -> None:
         """Insert a ticket, ignoring duplicates by ``email_id``.
 
         Uses ``INSERT OR IGNORE`` so re-fetching an already-stored email is
-        a safe no-op rather than raising a UNIQUE constraint error.
+        a safe no-op rather than raising a UNIQUE constraint error. The raw,
+        plain-text email body is persisted in ``raw_body`` for later auditing.
         """
         with self._connect() as conn:
             conn.execute(
                 """
                 INSERT OR IGNORE INTO tickets (
                     email_id, date_received, sender, subject,
-                    classification, priority, extracted_json, status
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    classification, priority, extracted_json, raw_body, status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     email_id,
@@ -99,6 +121,7 @@ class Database:
                     classification,
                     priority,
                     extracted_json,
+                    raw_body,
                     status,
                 ),
             )
@@ -110,9 +133,20 @@ class Database:
             rows = conn.execute(
                 """
                 SELECT id, email_id, date_received, sender, subject,
-                       classification, priority, extracted_json, status
+                       classification, priority, extracted_json, raw_body, status
                 FROM tickets
                 ORDER BY id DESC
                 """
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def get_raw_body(self, email_id: str) -> str:
+        """Return the stored raw email body for ``email_id`` (empty if none)."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT raw_body FROM tickets WHERE email_id = ?",
+                (email_id,),
+            ).fetchone()
+        if row is None:
+            return ""
+        return row["raw_body"] or ""

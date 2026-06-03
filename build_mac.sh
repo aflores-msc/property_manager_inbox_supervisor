@@ -11,6 +11,7 @@
 set -euo pipefail
 
 APP_NAME="Inbox Supervisor"
+ICON_FILE="icon.icns"
 
 echo "Building ${APP_NAME}.app..."
 
@@ -26,6 +27,7 @@ rm -rf build "dist/${APP_NAME}.app" "${APP_NAME}.spec"
 pyinstaller \
     --windowed \
     --name "${APP_NAME}" \
+    --icon="${ICON_FILE}" \
     --noconfirm \
     main.py
 
