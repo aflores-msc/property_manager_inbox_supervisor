@@ -193,6 +193,23 @@ class PriorityTableItem(QTableWidgetItem):
         return super().__lt__(other)
 
 
+class DateTableItem(QTableWidgetItem):
+    """A table item that stores the original ISO date string but displays it nicely, and sorts logically."""
+    
+    def __init__(self, iso_date_str: str) -> None:
+        super().__init__()
+        self._iso_date = iso_date_str
+        try:
+            dt = datetime.fromisoformat(iso_date_str)
+            self.setText(dt.strftime("%b %d, %Y %I:%M %p"))
+        except (ValueError, TypeError):
+            self.setText(iso_date_str)
+
+    def __lt__(self, other: QTableWidgetItem) -> bool:
+        if isinstance(other, DateTableItem):
+            return self._iso_date < other._iso_date
+        return super().__lt__(other)
+
 def _serialize_result(result: dict[str, Any]) -> dict[str, Any]:
     """Convert a LangGraph result (with Pydantic models) into a plain dict.
 
@@ -407,9 +424,9 @@ class InboxSupervisorWindow(QMainWindow):
 
         # Left: table
         self._table = QTableWidget()
-        self._table.setColumnCount(4)
+        self._table.setColumnCount(5)
         self._table.setHorizontalHeaderLabels(
-            ["Subject", "Classification", "Priority", "Property Address"]
+            ["Received Date", "Subject", "Classification", "Priority", "Property Address"]
         )
         self._table.setAlternatingRowColors(True)
         self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
@@ -417,10 +434,11 @@ class InboxSupervisorWindow(QMainWindow):
         self._table.setSortingEnabled(True)
         header = self._table.horizontalHeader()
         if header is not None:
-            header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-            header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+            header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+            header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
             header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-            header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+            header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+            header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
         self._table.currentCellChanged.connect(self._on_row_selected)
         splitter.addWidget(self._table)
 
@@ -619,27 +637,31 @@ class InboxSupervisorWindow(QMainWindow):
             classification = ticket.get("classification", "")
             priority = ticket.get("priority", "")
             address = routing.get("property_address", "") or "—"
+            date_received = ticket.get("date_received", "")
 
             row = self._table.rowCount()
             self._table.insertRow(row)
+            
+            date_item = DateTableItem(date_received)
+            date_item.setData(Qt.ItemDataRole.UserRole, json.dumps(payload))
+            self._table.setItem(row, 0, date_item)
 
             subject_item = QTableWidgetItem(ticket.get("subject", "(no subject)"))
-            subject_item.setData(Qt.ItemDataRole.UserRole, json.dumps(payload))
-            self._table.setItem(row, 0, subject_item)
+            self._table.setItem(row, 1, subject_item)
 
             cls_item = QTableWidgetItem(classification)
             cls_item.setForeground(
                 QColor(_CLASSIFICATION_COLOURS.get(classification, "#cdd6f4"))
             )
-            self._table.setItem(row, 1, cls_item)
+            self._table.setItem(row, 2, cls_item)
 
             pri_item = PriorityTableItem(priority)
             pri_item.setForeground(
                 QColor(_PRIORITY_COLOURS.get(priority.upper(), "#cdd6f4"))
             )
-            self._table.setItem(row, 2, pri_item)
+            self._table.setItem(row, 3, pri_item)
 
-            self._table.setItem(row, 3, QTableWidgetItem(address))
+            self._table.setItem(row, 4, QTableWidgetItem(address))
 
         self._table.setSortingEnabled(True)
 
