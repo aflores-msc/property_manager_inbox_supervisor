@@ -173,6 +173,15 @@ _CLASSIFICATION_COLOURS: dict[str, str] = {
     "IGNORED": "#6c7086",
 }
 
+# Global mapping of backend/JSON keys to user-friendly display labels. Used by
+# both the "Extracted Details" panel and the CSV export so the two stay in sync.
+# Any key not listed here falls back to a generic snake_case -> Title Case clean-up.
+_DISPLAY_LABELS: dict[str, str] = {
+    "entity_name": "Contact Name/Dept",
+    "entity_phone": "Contact Phone",
+    "entity_email": "Contact Email",
+}
+
 
 # ---------------------------------------------------------------------------
 # Custom table item for logical priority sorting
@@ -403,11 +412,11 @@ class SettingsDialog(QDialog):
 # ---------------------------------------------------------------------------
 
 class InboxSupervisorWindow(QMainWindow):
-    """Property Management Inbox Supervisor dashboard."""
+    """Estate Beacon dashboard."""
 
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("Property Manager — Inbox Supervisor")
+        self.setWindowTitle("Estate Beacon")
         self.setMinimumSize(1200, 700)
 
         self._pending_emails: list[dict[str, str]] = []
@@ -446,7 +455,7 @@ class InboxSupervisorWindow(QMainWindow):
 
         # Title bar
         title_bar = QHBoxLayout()
-        title = QLabel("Inbox Supervisor")
+        title = QLabel("Estate Beacon")
         title.setObjectName("title")
         title_bar.addWidget(title)
         title_bar.addStretch()
@@ -863,7 +872,14 @@ class InboxSupervisorWindow(QMainWindow):
 
     @staticmethod
     def _humanize(field_name: str) -> str:
-        """Convert a snake_case field name into a Title Case label."""
+        """Translate a backend key into a user-friendly display label.
+
+        Looks up an explicit override in :data:`_DISPLAY_LABELS` first; any key
+        without one falls back to a generic snake_case -> Title Case clean-up
+        (underscores become spaces, words are capitalized).
+        """
+        if field_name in _DISPLAY_LABELS:
+            return _DISPLAY_LABELS[field_name]
         return field_name.replace("_", " ").title()
 
     @staticmethod
