@@ -98,15 +98,18 @@ class Database:
         extracted_json: str,
         raw_body: str = "",
         status: str = "OPEN",
-    ) -> None:
+    ) -> bool:
         """Insert a ticket, ignoring duplicates by ``email_id``.
 
         Uses ``INSERT OR IGNORE`` so re-fetching an already-stored email is
         a safe no-op rather than raising a UNIQUE constraint error. The raw,
         plain-text email body is persisted in ``raw_body`` for later auditing.
+
+        Returns ``True`` if a new row was actually inserted, ``False`` if the
+        email was already present (and therefore ignored).
         """
         with self._connect() as conn:
-            conn.execute(
+            cursor = conn.execute(
                 """
                 INSERT OR IGNORE INTO tickets (
                     email_id, date_received, sender, subject,
@@ -126,6 +129,7 @@ class Database:
                 ),
             )
             conn.commit()
+            return cursor.rowcount > 0
 
     def get_all_tickets(self) -> list[dict[str, Any]]:
         """Return every ticket as a list of dicts, newest first."""
