@@ -14,6 +14,9 @@ public class OllamaCodeAssistantClient {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(OllamaCodeAssistantClient.class);
 
+    static final int MAX_SYSTEM_PROMPT_LENGTH = 50_000;
+    static final int MAX_USER_PROMPT_LENGTH = 100_000;
+
     private final ChatClient chatClient;
     private final OllamaCodeAssistantProperties properties;
 
@@ -23,6 +26,7 @@ public class OllamaCodeAssistantClient {
     }
 
     public String complete(String systemPrompt, String userPrompt) {
+        validatePrompts(systemPrompt, userPrompt);
         try {
             String content = chatClient.prompt()
                     .system(systemPrompt)
@@ -30,8 +34,7 @@ public class OllamaCodeAssistantClient {
                     .call()
                     .content();
             if (content == null || content.isBlank()) {
-                throw new OllamaCodeAssistantException(
-                        "Ollama returned an empty response for model %s".formatted(properties.model()), null);
+                throw new OllamaCodeAssistantException("Ollama returned an empty response.", null);
             }
             return content;
         }
@@ -43,22 +46,38 @@ public class OllamaCodeAssistantClient {
         }
     }
 
+    private static void validatePrompts(String systemPrompt, String userPrompt) {
+        if (systemPrompt == null || systemPrompt.isBlank()) {
+            throw new IllegalArgumentException("systemPrompt must not be null or blank");
+        }
+        if (userPrompt == null || userPrompt.isBlank()) {
+            throw new IllegalArgumentException("userPrompt must not be null or blank");
+        }
+        if (systemPrompt.length() > MAX_SYSTEM_PROMPT_LENGTH) {
+            throw new IllegalArgumentException(
+                    "systemPrompt exceeds maximum length of %d characters".formatted(MAX_SYSTEM_PROMPT_LENGTH));
+        }
+        if (userPrompt.length() > MAX_USER_PROMPT_LENGTH) {
+            throw new IllegalArgumentException(
+                    "userPrompt exceeds maximum length of %d characters".formatted(MAX_USER_PROMPT_LENGTH));
+        }
+    }
+
     private OllamaCodeAssistantException translate(RuntimeException ex) {
         Throwable root = rootCause(ex);
+        LOGGER.warn("Ollama request failed: {}", root.getMessage(), ex);
         String message = switch (root) {
             case ConnectException ignored -> "Cannot connect to Ollama. Verify OLLAMA_HOST and local network reachability.";
             case SocketTimeoutException ignored -> timeoutMessage(properties.requestTimeout());
             case TimeoutException ignored -> timeoutMessage(properties.requestTimeout());
             default -> {
-                String rootMessage = root.getMessage() == null ? "unknown error" : root.getMessage();
-                if (rootMessage.toLowerCase().contains("model") && rootMessage.contains(properties.model())) {
-                    yield "Ollama model %s is unavailable. Run `ollama pull %s` on the target host."
-                            .formatted(properties.model(), properties.model());
+                String rootMessage = root.getMessage() == null ? "" : root.getMessage().toLowerCase();
+                if (rootMessage.contains("model")) {
+                    yield "The configured Ollama model is unavailable. Verify it has been pulled on the target host.";
                 }
-                yield "Ollama request failed for model %s: %s".formatted(properties.model(), rootMessage);
+                yield "Ollama request failed. Check server logs for details.";
             }
         };
-        LOGGER.warn(message);
         return new OllamaCodeAssistantException(message, ex);
     }
 
