@@ -1,7 +1,6 @@
 package com.estatedevin.codemcp.ollama;
 
 import io.netty.channel.ChannelOption;
-import java.time.Duration;
 import org.springframework.boot.restclient.RestClientCustomizer;
 import org.springframework.boot.webclient.WebClientCustomizer;
 import org.springframework.context.annotation.Bean;
@@ -29,17 +28,9 @@ class OllamaHttpClientConfiguration {
     }
 
     private static HttpClient httpClient(OllamaCodeAssistantProperties properties) {
-        int connectTimeoutMillis = toMillis(properties.connectionTimeout());
+        int connectTimeoutMillis = OllamaUtils.toSafeMillis(properties.connectionTimeout());
         return HttpClient.create()
                 .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, connectTimeoutMillis)
                 .responseTimeout(properties.requestTimeout());
-    }
-
-    private static int toMillis(Duration duration) {
-        long millis = duration.toMillis();
-        if (millis > Integer.MAX_VALUE) {
-            return Integer.MAX_VALUE;
-        }
-        return Math.max(1, Math.toIntExact(millis));
     }
 }

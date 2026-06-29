@@ -44,18 +44,19 @@ public class OllamaCodeAssistantClient {
     }
 
     private OllamaCodeAssistantException translate(RuntimeException ex) {
-        Throwable root = rootCause(ex);
+        Throwable root = OllamaUtils.rootCause(ex);
+        String model = properties.model();
         String message = switch (root) {
             case ConnectException ignored -> "Cannot connect to Ollama. Verify OLLAMA_HOST and local network reachability.";
             case SocketTimeoutException ignored -> timeoutMessage(properties.requestTimeout());
             case TimeoutException ignored -> timeoutMessage(properties.requestTimeout());
             default -> {
                 String rootMessage = root.getMessage() == null ? "unknown error" : root.getMessage();
-                if (rootMessage.toLowerCase().contains("model") && rootMessage.contains(properties.model())) {
+                if (rootMessage.toLowerCase().contains("model") && rootMessage.contains(model)) {
                     yield "Ollama model %s is unavailable. Run `ollama pull %s` on the target host."
-                            .formatted(properties.model(), properties.model());
+                            .formatted(model, model);
                 }
-                yield "Ollama request failed for model %s: %s".formatted(properties.model(), rootMessage);
+                yield "Ollama request failed for model %s: %s".formatted(model, rootMessage);
             }
         };
         LOGGER.warn(message);
@@ -65,13 +66,5 @@ public class OllamaCodeAssistantClient {
     private static String timeoutMessage(Duration timeout) {
         return "Timed out waiting for Ollama after %s. Increase OLLAMA_REQUEST_TIMEOUT for high-latency local networks."
                 .formatted(timeout);
-    }
-
-    private static Throwable rootCause(Throwable throwable) {
-        Throwable current = throwable;
-        while (current.getCause() != null) {
-            current = current.getCause();
-        }
-        return current;
     }
 }
