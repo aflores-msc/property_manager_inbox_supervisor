@@ -23,3 +23,7 @@ dist/
 # IDE
 .vscode/
 .idea/
+
+# Gradle
+.gradle/
+!gradle/wrapper/gradle-wrapper.jar
