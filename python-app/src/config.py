@@ -21,8 +21,6 @@ class AppSettings(BaseSettings):
 
     GOOGLE_API_KEY: str
     GEMINI_MODEL_NAME: str = "gemini-2.5-flash"
-    MANAGER_EMAIL: str
-    EMAIL_USERNAME: str
 
 
 config = AppSettings()  # type: ignore[call-arg]

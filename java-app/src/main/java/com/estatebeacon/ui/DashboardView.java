@@ -14,6 +14,7 @@ import javafx.collections.ObservableList;
 import javafx.concurrent.Task;
 import javafx.geometry.Insets;
 import javafx.geometry.Orientation;
+import javafx.geometry.Rectangle2D;
 import javafx.scene.Node;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
@@ -31,6 +32,7 @@ import javafx.scene.layout.GridPane;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
+import javafx.stage.Screen;
 import javafx.stage.Stage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -38,6 +40,7 @@ import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -53,10 +56,13 @@ import java.util.concurrent.Executors;
 public class DashboardView {
 
     private static final Logger log = LoggerFactory.getLogger(DashboardView.class);
+    private static final double DEFAULT_WIDTH = 1200;
+    private static final double DEFAULT_HEIGHT = 700;
 
     private final GmailEmailFetcher emailFetcher;
     private final TicketProcessingService processingService;
     private final TicketRepository ticketRepository;
+    private final UiStateStore uiStateStore;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "estate-beacon-worker");
@@ -77,22 +83,119 @@ public class DashboardView {
     private ProgressBar progress;
     private Button fetchButton;
 
+    // Tracks the window's last non-maximized bounds, since Stage.getWidth()/getHeight() report
+    // the full screen size while maximized — restoring into those would leave no way back to a
+    // normal-sized window.
+    private double trackedX;
+    private double trackedY;
+    private double trackedWidth = DEFAULT_WIDTH;
+    private double trackedHeight = DEFAULT_HEIGHT;
+
     public DashboardView(
             GmailEmailFetcher emailFetcher,
             TicketProcessingService processingService,
-            TicketRepository ticketRepository
+            TicketRepository ticketRepository,
+            UiStateStore uiStateStore
     ) {
         this.emailFetcher = emailFetcher;
         this.processingService = processingService;
         this.ticketRepository = ticketRepository;
+        this.uiStateStore = uiStateStore;
     }
 
     public void show(Stage stage) {
         stage.setTitle("Estate Beacon");
-        stage.setScene(new Scene(buildRoot(), 1200, 700));
-        stage.show();
+        BorderPane root = buildRoot();
 
-        tickets.setAll(ticketRepository.getAllTickets());
+        UiState savedState = uiStateStore.load().orElse(null);
+        double width = savedState != null ? savedState.windowWidth() : DEFAULT_WIDTH;
+        double height = savedState != null ? savedState.windowHeight() : DEFAULT_HEIGHT;
+        stage.setScene(new Scene(root, width, height));
+
+        if (savedState != null) {
+            applyColumnWidths(savedState.columnWidths());
+            if (isOnScreen(savedState.windowX(), savedState.windowY(), width, height)) {
+                stage.setX(savedState.windowX());
+                stage.setY(savedState.windowY());
+            }
+        }
+        trackedWidth = width;
+        trackedHeight = height;
+
+        trackWindowBounds(stage);
+        stage.setOnCloseRequest(e -> saveUiState(stage));
+
+        stage.show();
+        if (savedState != null && savedState.maximized()) {
+            stage.setMaximized(true);
+        }
+
+        loadTicketsAsync();
+    }
+
+    /** A saved position is only useful if it still lands on a currently connected screen (e.g. an external monitor). */
+    private static boolean isOnScreen(double x, double y, double width, double height) {
+        Rectangle2D bounds = new Rectangle2D(x, y, width, height);
+        return Screen.getScreens().stream().anyMatch(screen -> screen.getVisualBounds().intersects(bounds));
+    }
+
+    /** Keeps {@link #trackedX}/{@link #trackedY}/{@link #trackedWidth}/{@link #trackedHeight} in sync while not maximized. */
+    private void trackWindowBounds(Stage stage) {
+        stage.xProperty().addListener((obs, old, value) -> {
+            if (!stage.isMaximized()) {
+                trackedX = value.doubleValue();
+            }
+        });
+        stage.yProperty().addListener((obs, old, value) -> {
+            if (!stage.isMaximized()) {
+                trackedY = value.doubleValue();
+            }
+        });
+        stage.widthProperty().addListener((obs, old, value) -> {
+            if (!stage.isMaximized()) {
+                trackedWidth = value.doubleValue();
+            }
+        });
+        stage.heightProperty().addListener((obs, old, value) -> {
+            if (!stage.isMaximized()) {
+                trackedHeight = value.doubleValue();
+            }
+        });
+    }
+
+    private void applyColumnWidths(Map<String, Double> columnWidths) {
+        if (columnWidths == null) {
+            return;
+        }
+        for (TableColumn<Ticket, ?> column : table.getColumns()) {
+            Double width = columnWidths.get(column.getId());
+            if (width != null) {
+                column.setPrefWidth(width);
+            }
+        }
+    }
+
+    private void saveUiState(Stage stage) {
+        Map<String, Double> columnWidths = new LinkedHashMap<>();
+        for (TableColumn<Ticket, ?> column : table.getColumns()) {
+            if (column.getId() != null) {
+                columnWidths.put(column.getId(), column.getWidth());
+            }
+        }
+        uiStateStore.save(new UiState(trackedX, trackedY, trackedWidth, trackedHeight, stage.isMaximized(), columnWidths));
+    }
+
+    /** Loads the ticket table off the FX Application Thread, so a large/slow DB doesn't freeze the just-shown window. */
+    private void loadTicketsAsync() {
+        Task<List<Ticket>> task = new Task<>() {
+            @Override
+            protected List<Ticket> call() {
+                return ticketRepository.getAllTickets();
+            }
+        };
+        task.setOnSucceeded(e -> tickets.setAll(task.getValue()));
+        task.setOnFailed(e -> log.error("Failed to load tickets", task.getException()));
+        executor.submit(task);
     }
 
     private BorderPane buildRoot() {
@@ -154,6 +257,7 @@ public class DashboardView {
 
     private void buildTable() {
         TableColumn<Ticket, String> dateCol = new TableColumn<>("Received Date");
+        dateCol.setId("date");
         dateCol.setCellValueFactory(cell -> new ReadOnlyStringWrapper(cell.getValue().dateReceived()));
         dateCol.setCellFactory(col -> new TableCell<>() {
             @Override
@@ -165,16 +269,20 @@ public class DashboardView {
         dateCol.setPrefWidth(150);
 
         TableColumn<Ticket, String> subjectCol = new TableColumn<>("Subject");
+        subjectCol.setId("subject");
         subjectCol.setCellValueFactory(cell -> new ReadOnlyStringWrapper(cell.getValue().subject()));
         subjectCol.setPrefWidth(280);
 
         TableColumn<Ticket, String> classificationCol = new TableColumn<>("Classification");
+        classificationCol.setId("classification");
         classificationCol.setCellValueFactory(cell -> new ReadOnlyStringWrapper(cell.getValue().classification()));
 
         TableColumn<Ticket, String> priorityCol = new TableColumn<>("Priority");
+        priorityCol.setId("priority");
         priorityCol.setCellValueFactory(cell -> new ReadOnlyStringWrapper(cell.getValue().priority()));
 
         TableColumn<Ticket, String> addressCol = new TableColumn<>("Property Address");
+        addressCol.setId("address");
         addressCol.setCellValueFactory(cell -> new ReadOnlyStringWrapper(propertyAddress(cell.getValue())));
         addressCol.setPrefWidth(220);
 
@@ -309,22 +417,25 @@ public class DashboardView {
         return result.toString();
     }
 
+    private record FetchSummary(int totalChecked, int newTickets, int ignored, int failed, int skipped) {
+    }
+
     private void onFetchClicked() {
         fetchButton.setDisable(true);
         progress.setVisible(true);
         progress.setProgress(ProgressBar.INDETERMINATE_PROGRESS);
         status.setText("Connecting to mail server...");
 
-        Task<Void> task = new Task<>() {
+        Task<FetchSummary> task = new Task<>() {
             @Override
-            protected Void call() throws Exception {
-                emailFetcher.connect();
-                List<InboundEmail> emails = emailFetcher.fetchUnreadEmails();
+            protected FetchSummary call() throws Exception {
+                emailFetcher.connect(this::updateMessage);
+                List<InboundEmail> emails = emailFetcher.fetchUnreadEmails(this::updateMessage);
                 emailFetcher.disconnect();
 
                 if (emails.isEmpty()) {
                     updateMessage("No unread emails found.");
-                    return null;
+                    return new FetchSummary(0, 0, 0, 0, 0);
                 }
 
                 // Gmail's UNREAD label doesn't change just because this app looked at a
@@ -335,29 +446,43 @@ public class DashboardView {
                 var knownEmailIds = ticketRepository.getProcessedEmailIds();
 
                 updateProgress(0, emails.size());
-                int processed = 0;
+                int done = 0;
+                int skipped = 0;
+                int newTickets = 0;
+                int ignored = 0;
+                int failed = 0;
                 for (InboundEmail email : emails) {
+                    done++;
                     if (knownEmailIds.contains(email.emailId())) {
-                        log.info("Skipping already-processed email: {}", email.subject());
-                        processed++;
-                        updateProgress(processed, emails.size());
-                        updateMessage("Skipped " + processed + " / " + emails.size() + " (already processed)...");
+                        skipped++;
+                        updateProgress(done, emails.size());
+                        updateMessage("Checked " + done + " / " + emails.size()
+                                + " (" + skipped + " already processed, skipped)...");
                         continue;
                     }
+                    updateMessage("Processing " + done + " / " + emails.size() + ": "
+                            + (email.subject().isBlank() ? "(no subject)" : email.subject()) + "...");
                     try {
                         ProcessingOutcome outcome = processingService.process(email);
-                        if (outcome.ignored()) {
+                        if (outcome.failed()) {
+                            failed++;
+                            log.warn("Classification failed for {}: {}", email.subject(), outcome.errorMessage());
+                        } else if (outcome.ignored()) {
+                            ignored++;
                             log.info("Discarding IGNORED email: {}", email.subject());
+                        } else {
+                            newTickets++;
                         }
                     } catch (Exception e) {
+                        failed++;
                         log.error("Processing failed for {}", email.subject(), e);
-                        updateMessage("Processing error: " + e.getMessage());
                     }
-                    processed++;
-                    updateProgress(processed, emails.size());
-                    updateMessage("Processed " + processed + " / " + emails.size() + " email(s)...");
+                    updateProgress(done, emails.size());
+                    updateMessage("Checked " + done + " / " + emails.size()
+                            + " (" + newTickets + " ticketed, " + ignored + " ignored, "
+                            + failed + " failed)...");
                 }
-                return null;
+                return new FetchSummary(emails.size(), newTickets, ignored, failed, skipped);
             }
         };
 
@@ -368,7 +493,16 @@ public class DashboardView {
             status.textProperty().unbind();
             progress.progressProperty().unbind();
             tickets.setAll(ticketRepository.getAllTickets());
-            status.setText("Done — " + tickets.size() + " ticket(s) in database.");
+            FetchSummary summary = task.getValue();
+            StringBuilder message = new StringBuilder(String.format(
+                    "Done — checked %d, %d new ticket(s), %d ignored",
+                    summary.totalChecked(), summary.newTickets(), summary.ignored()));
+            if (summary.failed() > 0) {
+                message.append(String.format(", %d failed (see log)", summary.failed()));
+            }
+            message.append(String.format(", %d already known and skipped. %d ticket(s) in database.",
+                    summary.skipped(), tickets.size()));
+            status.setText(message.toString());
             progress.setVisible(false);
             fetchButton.setDisable(false);
         });

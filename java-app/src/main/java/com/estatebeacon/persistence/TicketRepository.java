@@ -19,15 +19,33 @@ import java.util.Set;
 /**
  * DAO for the {@code tickets} table, sharing {@code ~/.property_manager_ai/property_manager.db}
  * with the Python implementation so both clients read and write the same data.
- * Mirrors {@code database.py}: a fresh, short-lived JDBC connection per call
- * rather than one held-open connection, matching that module's stated
- * rationale for safe concurrent access from multiple threads.
+ *
+ * <p>Mirrors {@code database.py}: a fresh, short-lived JDBC connection per call rather than one
+ * held-open connection. Note this buys nothing for concurrency <em>within</em> this process —
+ * SQLite serializes writes at the file level regardless of how many local connections exist —
+ * but it does matter for the DB file being genuinely shared <em>across processes</em> with the
+ * separate Python app: every connection sets a busy timeout so a call here that lands while the
+ * Python side (or vice versa) briefly holds the file's write lock retries instead of failing
+ * outright with {@code SQLITE_BUSY}.
  */
 @Repository
 public class TicketRepository {
 
     private static final Logger log = LoggerFactory.getLogger(TicketRepository.class);
     private static final String DB_FILENAME = "property_manager.db";
+    private static final int BUSY_TIMEOUT_MILLIS = 5000;
+
+    static {
+        // DriverManager normally finds this via META-INF/services/java.sql.Driver, but that
+        // ServiceLoader-based auto-registration doesn't fire inside the jpackage'd app image
+        // (its classloading setup differs from a plain `java -cp` launch) — load it explicitly
+        // so `jdbc:sqlite:...` resolves in both environments.
+        try {
+            Class.forName("org.sqlite.JDBC");
+        } catch (ClassNotFoundException e) {
+            throw new IllegalStateException("SQLite JDBC driver not found on classpath", e);
+        }
+    }
 
     private final String jdbcUrl;
 
@@ -37,7 +55,11 @@ public class TicketRepository {
     }
 
     private Connection connect() throws SQLException {
-        return DriverManager.getConnection(jdbcUrl);
+        Connection conn = DriverManager.getConnection(jdbcUrl);
+        try (Statement st = conn.createStatement()) {
+            st.execute("PRAGMA busy_timeout = " + BUSY_TIMEOUT_MILLIS);
+        }
+        return conn;
     }
 
     private void initialize() {
@@ -127,8 +149,13 @@ public class TicketRepository {
         }
     }
 
-    /** Inserts a ticket, ignoring duplicates by {@code emailId}. Returns {@code true} if a new row was inserted. */
-    public boolean insertTicket(
+    /**
+     * Inserts a ticket and records the email as processed in a single transaction, so a crash
+     * between the two writes can't leave an email ticketed but still eligible for (and billed
+     * for) reclassification on the next fetch. Ignores duplicate {@code emailId}s. Returns
+     * {@code true} if a new ticket row was inserted.
+     */
+    public boolean insertTicketAndMarkProcessed(
             String emailId,
             String dateReceived,
             String sender,
@@ -138,24 +165,42 @@ public class TicketRepository {
             String extractedJson,
             String rawBody
     ) {
-        String sql = """
+        String insertSql = """
                 INSERT OR IGNORE INTO tickets (
                     email_id, date_received, sender, subject,
                     classification, priority, extracted_json, raw_body, status
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'OPEN')
                 """;
-        try (Connection conn = connect(); PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, emailId);
-            ps.setString(2, dateReceived);
-            ps.setString(3, sender);
-            ps.setString(4, subject);
-            ps.setString(5, classification);
-            ps.setString(6, priority);
-            ps.setString(7, extractedJson);
-            ps.setString(8, rawBody);
-            return ps.executeUpdate() > 0;
+        String markSql = "INSERT OR IGNORE INTO processed_emails (email_id, processed_at) VALUES (?, ?)";
+
+        try (Connection conn = connect()) {
+            conn.setAutoCommit(false);
+            try {
+                boolean inserted;
+                try (PreparedStatement ps = conn.prepareStatement(insertSql)) {
+                    ps.setString(1, emailId);
+                    ps.setString(2, dateReceived);
+                    ps.setString(3, sender);
+                    ps.setString(4, subject);
+                    ps.setString(5, classification);
+                    ps.setString(6, priority);
+                    ps.setString(7, extractedJson);
+                    ps.setString(8, rawBody);
+                    inserted = ps.executeUpdate() > 0;
+                }
+                try (PreparedStatement ps = conn.prepareStatement(markSql)) {
+                    ps.setString(1, emailId);
+                    ps.setString(2, dateReceived);
+                    ps.executeUpdate();
+                }
+                conn.commit();
+                return inserted;
+            } catch (SQLException e) {
+                conn.rollback();
+                throw e;
+            }
         } catch (SQLException e) {
-            throw new IllegalStateException("Failed to insert ticket " + emailId, e);
+            throw new IllegalStateException("Failed to record ticket " + emailId, e);
         }
     }
 

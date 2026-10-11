@@ -7,7 +7,6 @@ import com.estatebeacon.persistence.TicketRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 
-import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.Map;
@@ -30,32 +29,39 @@ public class TicketProcessingService {
     }
 
     public ProcessingOutcome process(InboundEmail email) throws Exception {
-        var compiledGraph = graphFactory.compile();
-
         Map<String, Object> initialState = Map.of(
                 PropertyManagementState.ORIGINAL_EMAIL_SUBJECT, email.subject(),
                 PropertyManagementState.ORIGINAL_EMAIL_SENDER, email.sender(),
                 PropertyManagementState.ORIGINAL_EMAIL_TEXT, email.body()
         );
 
-        PropertyManagementState result = compiledGraph.invoke(initialState)
+        PropertyManagementState result = graphFactory.compiledGraph().invoke(initialState)
                 .orElseThrow(() -> new IllegalStateException("Graph produced no final state"));
 
         var routing = result.routingData().orElse(null);
-        String classification = routing != null ? routing.classification().name() : "UNKNOWN";
-        String dateReceived = LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+
+        // The supervisor itself failed (LLM error, no routing data) — there is nothing to
+        // ticket. Deliberately don't mark the email processed, so the next fetch retries it
+        // instead of leaving a permanent blank-priority "UNKNOWN" ticket behind.
+        if (routing == null) {
+            return new ProcessingOutcome(false, true, false, "UNKNOWN", "",
+                    result.error().orElse("Classification produced no routing data"));
+        }
+
+        String classification = routing.classification().name();
+        String dateReceived = email.dateReceived().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
 
         // Strictly discard IGNORED emails — no DB row — but still remember the
         // email_id was classified, or it'll be reclassified on every re-fetch.
         if ("IGNORED".equals(classification)) {
             ticketRepository.markProcessed(email.emailId(), dateReceived);
-            return new ProcessingOutcome(true, false, classification, "", result.error().orElse(null));
+            return new ProcessingOutcome(true, false, false, classification, "", result.error().orElse(null));
         }
 
-        String priority = routing != null ? routing.priorityLevel().name() : "";
+        String priority = routing.priorityLevel().name();
         String extractedJson = serialize(result);
 
-        boolean inserted = ticketRepository.insertTicket(
+        boolean inserted = ticketRepository.insertTicketAndMarkProcessed(
                 email.emailId(),
                 dateReceived,
                 email.sender(),
@@ -65,9 +71,8 @@ public class TicketProcessingService {
                 extractedJson,
                 email.body()
         );
-        ticketRepository.markProcessed(email.emailId(), dateReceived);
 
-        return new ProcessingOutcome(false, inserted, classification, priority, result.error().orElse(null));
+        return new ProcessingOutcome(false, false, inserted, classification, priority, result.error().orElse(null));
     }
 
     /** Mirrors {@code ui.py:_serialize_result} — a plain JSON-serialisable payload. */

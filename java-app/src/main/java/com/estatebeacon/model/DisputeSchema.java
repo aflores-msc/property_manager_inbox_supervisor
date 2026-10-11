@@ -2,12 +2,8 @@ package com.estatebeacon.model;
 
 import com.fasterxml.jackson.annotation.JsonPropertyDescription;
 
-import java.io.Serializable;
-
 /**
  * Structured data extracted from a tenant dispute email.
- *
- * <p>Implements {@link Serializable} — see {@link UniversalRoutingData} for why.
  */
 public record DisputeSchema(
         @JsonPropertyDescription("Type of dispute, e.g. 'noise', 'lease terms', 'deposit'")
@@ -24,5 +20,5 @@ public record DisputeSchema(
 
         @JsonPropertyDescription("Whether legal or management escalation is recommended")
         boolean escalationNeeded
-) implements Serializable {
+) {
 }

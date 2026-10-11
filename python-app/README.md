@@ -70,7 +70,7 @@ This works identically on macOS, Windows, and Linux — and survives being packa
 
 ```bash
 cp .env.example ~/.property_manager_ai/.env
-# Edit ~/.property_manager_ai/.env with your Gemini API key and email address
+# Edit ~/.property_manager_ai/.env with your Gemini API key
 ```
 
 ### 5. Run the application
@@ -130,8 +130,6 @@ build.bat
 |---|---|
 | `GOOGLE_API_KEY` | Google Gemini API key |
 | `GEMINI_MODEL_NAME` | Model name (default: `gemini-2.5-flash`) |
-| `MANAGER_EMAIL` | Property manager's email address |
-| `EMAIL_USERNAME` | Gmail account (display / reference only) |
 
 ## Tech Stack
 

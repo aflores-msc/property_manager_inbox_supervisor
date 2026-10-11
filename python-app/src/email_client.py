@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import logging
 import os
+import re
 from typing import Any
 
 from google.auth.transport.requests import Request
@@ -76,14 +77,25 @@ class EmailFetcher:
             self.connect()
         assert self._service is not None
 
-        results: dict[str, Any] = (
-            self._service.users()
-            .messages()
-            .list(userId="me", labelIds=["UNREAD", "INBOX"], maxResults=50)
-            .execute()
-        )
+        message_refs: list[dict[str, str]] = []
+        page_token: str | None = None
+        while True:
+            results: dict[str, Any] = (
+                self._service.users()
+                .messages()
+                .list(
+                    userId="me",
+                    labelIds=["UNREAD", "INBOX"],
+                    maxResults=100,
+                    pageToken=page_token,
+                )
+                .execute()
+            )
+            message_refs.extend(results.get("messages", []))
+            page_token = results.get("nextPageToken")
+            if not page_token:
+                break
 
-        message_refs: list[dict[str, str]] = results.get("messages", [])
         if not message_refs:
             return []
 
@@ -117,10 +129,20 @@ class EmailFetcher:
 
 
 def _extract_plain_text(payload: dict[str, Any]) -> str:
-    """Recursively walk a Gmail message payload and return plain text."""
-    mime_type: str = payload.get("mimeType", "")
+    """Extract a message body, preferring ``text/plain`` but falling back to a
+    lightly stripped ``text/html`` part if that's all the message has.
+    """
+    plain_text = _extract_part_by_mime_type(payload, "text/plain")
+    if plain_text:
+        return plain_text
 
-    if mime_type == "text/plain":
+    html = _extract_part_by_mime_type(payload, "text/html")
+    return _strip_html(html) if html else ""
+
+
+def _extract_part_by_mime_type(payload: dict[str, Any], mime_type: str) -> str:
+    """Recursively walk a Gmail message payload for the first part matching ``mime_type``."""
+    if payload.get("mimeType", "") == mime_type:
         data: str = payload.get("body", {}).get("data", "")
         if data:
             return base64.urlsafe_b64decode(data).decode("utf-8", errors="replace")
@@ -128,8 +150,27 @@ def _extract_plain_text(payload: dict[str, Any]) -> str:
 
     parts: list[dict[str, Any]] = payload.get("parts", [])
     for part in parts:
-        text = _extract_plain_text(part)
+        text = _extract_part_by_mime_type(part, mime_type)
         if text:
             return text
 
     return ""
+
+
+def _strip_html(html: str) -> str:
+    """Reduce an HTML email body to plain-ish text for the classification prompt.
+
+    Not a real HTML parser — just enough to keep an HTML-only email's content
+    from being silently discarded.
+    """
+    without_blocks = re.sub(r"(?is)<(script|style)[^>]*>.*?</\1>", " ", html)
+    without_tags = re.sub(r"(?s)<[^>]+>", " ", without_blocks)
+    unescaped = (
+        without_tags.replace("&nbsp;", " ")
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", '"')
+        .replace("&#39;", "'")
+    )
+    return re.sub(r"[ \t\v\f\r]+", " ", unescaped).strip()

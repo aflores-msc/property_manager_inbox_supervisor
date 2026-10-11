@@ -2,12 +2,8 @@ package com.estatebeacon.model;
 
 import com.fasterxml.jackson.annotation.JsonPropertyDescription;
 
-import java.io.Serializable;
-
 /**
  * Structured data extracted from a city / legal notice email.
- *
- * <p>Implements {@link Serializable} — see {@link UniversalRoutingData} for why.
  */
 public record CityNoticeSchema(
         @JsonPropertyDescription("Type of notice, e.g. 'code violation', 'permit'")
@@ -33,5 +29,5 @@ public record CityNoticeSchema(
 
         @JsonPropertyDescription("Contact email address for the issuing authority")
         String entityEmail
-) implements Serializable {
+) {
 }

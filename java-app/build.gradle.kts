@@ -59,3 +59,33 @@ tasks.test {
 tasks.named<org.springframework.boot.gradle.tasks.bundling.BootJar>("bootJar") {
     mainClass = "com.estatebeacon.EstateBeaconApp"
 }
+
+runtime {
+    // jlink's own jdeps-based auto-detection misses modules that are only reachable via
+    // JavaFX's internal/reflective use (jdk.unsupported) or TLS (jdk.crypto.ec) — spelling
+    // out java.se plus those closes that gap instead of chasing missing-module errors one at a time.
+    modules.set(listOf("java.se", "jdk.unsupported", "jdk.crypto.ec", "jdk.httpserver", "jdk.jfr"))
+
+    jpackage {
+        imageName = "Estate Beacon"
+        // jpackage requires the first version component to be >= 1; the Gradle
+        // project version (0.1.0) doesn't qualify, so this is pinned separately.
+        appVersion = "1.0.0"
+        skipInstaller = true
+        imageOptions = listOf("--icon", file("packaging/macos/app-icon.icns").absolutePath)
+        // jpackage puts every dependency jar (JavaFX included) on the plain classpath;
+        // JavaFX only initializes from the module path, so it has to be added back here
+        // the same way the `run` task's javafx plugin-generated args do it. Scoped to just
+        // the JavaFX jars (not the whole $APPDIR) — pointing the module path at a directory
+        // containing every dependency pulls sqlite-jdbc in as an automatic module too, which
+        // then can't see SLF4J classes sitting in the classpath's unnamed module.
+        val javafxModulePath = configurations.runtimeClasspath.get().files
+            .filter { it.name.startsWith("javafx-") }
+            .sortedBy { it.name }
+            .joinToString(":") { "\$APPDIR/${it.name}" }
+        jvmArgs = listOf(
+            "--module-path", javafxModulePath,
+            "--add-modules", "javafx.controls,javafx.graphics,javafx.base"
+        )
+    }
+}

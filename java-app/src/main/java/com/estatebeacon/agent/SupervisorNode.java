@@ -1,29 +1,20 @@
 package com.estatebeacon.agent;
 
 import com.estatebeacon.model.UniversalRoutingData;
-import org.bsc.langgraph4j.action.NodeAction;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.stereotype.Component;
 
-import java.util.Map;
-
 /** Extracts universal routing data from the raw email. Mirrors {@code agents.py:supervisor_node}. */
 @Component
-public class SupervisorNode implements NodeAction<PropertyManagementState> {
-
-    private static final Logger log = LoggerFactory.getLogger(SupervisorNode.class);
-
-    private final ChatClient chatClient;
+public class SupervisorNode extends AbstractLlmExtractionNode<UniversalRoutingData> {
 
     public SupervisorNode(ChatClient chatClient) {
-        this.chatClient = chatClient;
+        super(chatClient, UniversalRoutingData.class, PropertyManagementState.ROUTING_DATA, "Supervisor node");
     }
 
     @Override
-    public Map<String, Object> apply(PropertyManagementState state) {
-        String prompt = """
+    protected String buildPrompt(PropertyManagementState state) {
+        return """
                 You are a property management email classifier. Analyze the following email \
                 and extract structured routing data.
 
@@ -41,16 +32,5 @@ public class SupervisorNode implements NodeAction<PropertyManagementState> {
                 Extract the property address and unit number if mentioned.
                 Determine the sender type (e.g. 'tenant', 'city', 'vendor', 'contractor').
                 """.formatted(state.originalEmailSubject(), state.originalEmailSender(), state.originalEmailText());
-
-        try {
-            UniversalRoutingData routing = chatClient.prompt()
-                    .user(prompt)
-                    .call()
-                    .entity(UniversalRoutingData.class, spec -> spec.useProviderStructuredOutput());
-            return Map.of(PropertyManagementState.ROUTING_DATA, routing);
-        } catch (Exception e) {
-            log.error("Supervisor node failed", e);
-            return Map.of(PropertyManagementState.ERROR, "Supervisor extraction failed: " + e.getMessage());
-        }
     }
 }

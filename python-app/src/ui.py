@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import json
 import logging
+import re
 from datetime import datetime
 from typing import Any
 
@@ -240,15 +241,48 @@ def _serialize_result(result: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
+_CAMEL_CASE_BOUNDARY = re.compile(r"(?<!^)(?=[A-Z])")
+
+
+def _normalize_extracted_keys(value: Any) -> Any:
+    """Recursively convert camelCase dict keys to snake_case.
+
+    ``tickets.extracted_json`` is a shared SQLite column: a row may have been
+    written by this app (snake_case: ``routing_data``, ``property_address``)
+    or by the Java port, whose Jackson-based serializer uses its record
+    fields' own camelCase names verbatim (``routingData``,
+    ``propertyAddress``, and likewise for every nested field). Every reader
+    of this payload — the detail panel, the table's Property Address column,
+    CSV export — expects snake_case, so normalizing once here means a ticket
+    renders correctly regardless of which app created it, instead of
+    silently showing "No details available." / blank fields for anything
+    the Java side wrote.
+    """
+    if isinstance(value, dict):
+        return {
+            _CAMEL_CASE_BOUNDARY.sub("_", key).lower(): _normalize_extracted_keys(val)
+            for key, val in value.items()
+        }
+    if isinstance(value, list):
+        return [_normalize_extracted_keys(item) for item in value]
+    return value
+
+
 # ---------------------------------------------------------------------------
 # Worker threads
 # ---------------------------------------------------------------------------
 
 class FetchEmailsWorker(QThread):
-    """Fetch unread emails from Gmail in a background thread."""
+    """Fetch unread emails from Gmail in a background thread, filtering out
+    ones already recorded as processed (see :meth:`Database.get_processed_email_ids`).
+    """
 
-    finished = pyqtSignal(list)
+    finished = pyqtSignal(list, int)
     error = pyqtSignal(str)
+
+    def __init__(self, db: Database, parent: QThread | None = None) -> None:
+        super().__init__(parent)
+        self._db = db
 
     def run(self) -> None:
         try:
@@ -258,7 +292,11 @@ class FetchEmailsWorker(QThread):
             fetcher.connect()
             emails = fetcher.fetch_unread_emails()
             fetcher.disconnect()
-            self.finished.emit(emails)
+
+            known_ids = self._db.get_processed_email_ids()
+            new_emails = [e for e in emails if e.get("email_id") not in known_ids]
+            skipped = len(emails) - len(new_emails)
+            self.finished.emit(new_emails, skipped)
         except FileNotFoundError as exc:
             logger.error("Missing credentials: %s", exc)
             self.error.emit(
@@ -330,6 +368,29 @@ class SaveTicketWorker(QThread):
             self.error.emit(str(exc))
 
 
+class MarkProcessedWorker(QThread):
+    """Record an email as processed (e.g. classified IGNORED) off the UI thread."""
+
+    finished = pyqtSignal()
+    error = pyqtSignal(str)
+
+    def __init__(
+        self, db: Database, email_id: str, processed_at: str, parent: QThread | None = None
+    ) -> None:
+        super().__init__(parent)
+        self._db = db
+        self._email_id = email_id
+        self._processed_at = processed_at
+
+    def run(self) -> None:
+        try:
+            self._db.mark_processed(self._email_id, self._processed_at)
+            self.finished.emit()
+        except Exception as exc:
+            logger.exception("Marking email processed failed")
+            self.error.emit(str(exc))
+
+
 class RawBodyWorker(QThread):
     """Fetch a single ticket's raw email body off the UI thread."""
 
@@ -346,6 +407,24 @@ class RawBodyWorker(QThread):
             self.finished.emit(self._db.get_raw_body(self._email_id))
         except Exception as exc:
             logger.exception("Raw body lookup failed")
+            self.error.emit(str(exc))
+
+
+class ExportTicketsWorker(QThread):
+    """Read every ticket off the UI thread, ahead of a CSV export."""
+
+    finished = pyqtSignal(list)
+    error = pyqtSignal(str)
+
+    def __init__(self, db: Database, parent: QThread | None = None) -> None:
+        super().__init__(parent)
+        self._db = db
+
+    def run(self) -> None:
+        try:
+            self.finished.emit(self._db.get_all_tickets())
+        except Exception as exc:
+            logger.exception("Ticket export read failed")
             self.error.emit(str(exc))
 
 
@@ -429,8 +508,13 @@ class InboxSupervisorWindow(QMainWindow):
         self._pending_emails: list[dict[str, str]] = []
         self._current_worker: ProcessEmailWorker | None = None
         self._save_worker: SaveTicketWorker | None = None
+        self._mark_processed_worker: MarkProcessedWorker | None = None
+        self._raw_body_worker_busy = False
+        self._export_worker: ExportTicketsWorker | None = None
         self._processed_count = 0
         self._batch_total = 0
+        self._skipped_count = 0
+        self._failed_count = 0
         self._is_fetching = False
         self._selected_email_id = ""
         self._raw_email_dialogs: list[QDialog] = []
@@ -595,20 +679,27 @@ class InboxSupervisorWindow(QMainWindow):
         self._progress.setRange(0, 0)
         self._progress.setVisible(True)
 
-        self._fetch_worker = FetchEmailsWorker()
+        self._fetch_worker = FetchEmailsWorker(self._db)
         self._fetch_worker.finished.connect(self._on_emails_fetched)
         self._fetch_worker.error.connect(self._on_fetch_error)
         self._fetch_worker.start()
 
-    def _on_emails_fetched(self, emails: list[dict[str, str]]) -> None:
+    def _on_emails_fetched(self, emails: list[dict[str, str]], skipped: int) -> None:
+        self._skipped_count = skipped
         if not emails:
-            self._status_bar.showMessage("No unread emails found.")
+            message = (
+                "No unread emails found."
+                if skipped == 0
+                else f"No new emails to process ({skipped} already known, skipped)."
+            )
+            self._status_bar.showMessage(message)
             self._end_fetch_cycle()
             return
 
         self._pending_emails = list(emails)
         self._batch_total = len(emails)
         self._processed_count = 0
+        self._failed_count = 0
         self._progress.setRange(0, self._batch_total)
         self._progress.setValue(0)
         self._status_bar.showMessage(
@@ -629,9 +720,15 @@ class InboxSupervisorWindow(QMainWindow):
     def _process_next_email(self) -> None:
         if not self._pending_emails:
             self._end_fetch_cycle()
-            self._status_bar.showMessage(
-                f"Done — {self._table.rowCount()} ticket(s) in database."
-            )
+            message = f"Done — {self._table.rowCount()} ticket(s) in database"
+            extras = []
+            if self._skipped_count:
+                extras.append(f"{self._skipped_count} already known and skipped")
+            if self._failed_count:
+                extras.append(f"{self._failed_count} failed (see log)")
+            if extras:
+                message += " (" + ", ".join(extras) + ")"
+            self._status_bar.showMessage(message + ".")
             return
 
         email_data = self._pending_emails.pop(0)
@@ -648,15 +745,38 @@ class InboxSupervisorWindow(QMainWindow):
         self._advance_progress()
 
         routing = result.get("routing_data")
-        classification = routing.classification if routing else "UNKNOWN"
 
-        # Task 1: strictly discard IGNORED emails — no DB row, no UI row.
-        if classification == "IGNORED":
-            logger.info("Discarding IGNORED email: %s", email_data.get("subject"))
+        # The supervisor itself failed (LLM error, no routing data) — there is
+        # nothing to ticket. Deliberately don't mark the email processed, so
+        # the next fetch retries it instead of leaving a permanent
+        # blank-priority "UNKNOWN" ticket behind.
+        if routing is None:
+            self._failed_count += 1
+            logger.warning(
+                "Classification failed for %s: %s",
+                email_data.get("subject"),
+                result.get("error"),
+            )
             self._process_next_email()
             return
 
-        priority = routing.priority_level if routing else ""
+        classification = routing.classification
+
+        # Task 1: strictly discard IGNORED emails — no ticket row — but still
+        # remember the email_id was classified, or it'll be reclassified (and
+        # re-billed) on every re-fetch, since this app's readonly Gmail scope
+        # never marks a message read.
+        if classification == "IGNORED":
+            logger.info("Discarding IGNORED email: %s", email_data.get("subject"))
+            email_id = email_data.get("email_id", "")
+            processed_at = datetime.now().isoformat(timespec="seconds")
+            self._mark_processed_worker = MarkProcessedWorker(self._db, email_id, processed_at)
+            self._mark_processed_worker.finished.connect(self._process_next_email)
+            self._mark_processed_worker.error.connect(self._on_mark_processed_error)
+            self._mark_processed_worker.start()
+            return
+
+        priority = routing.priority_level
         ticket = {
             "email_id": email_data.get("email_id", ""),
             "date_received": datetime.now().isoformat(timespec="seconds"),
@@ -686,8 +806,13 @@ class InboxSupervisorWindow(QMainWindow):
         self._status_bar.showMessage(f"Database error: {error_msg}")
         self._process_next_email()
 
+    def _on_mark_processed_error(self, error_msg: str) -> None:
+        self._status_bar.showMessage(f"Database error: {error_msg}")
+        self._process_next_email()
+
     def _on_process_error(self, error_msg: str) -> None:
         self._status_bar.showMessage(f"Processing error: {error_msg}")
+        self._failed_count += 1
         self._advance_progress()
         self._process_next_email()
 
@@ -771,8 +896,9 @@ class InboxSupervisorWindow(QMainWindow):
         the UI thread never blocks, and the dialog is shown non-modally.
         """
         email_id = self._selected_email_id
-        if not email_id:
+        if not email_id or self._raw_body_worker_busy:
             return
+        self._raw_body_worker_busy = True
         self._view_email_btn.setEnabled(False)
         self._raw_body_worker = RawBodyWorker(self._db, email_id)
         self._raw_body_worker.finished.connect(self._show_raw_email_dialog)
@@ -780,6 +906,7 @@ class InboxSupervisorWindow(QMainWindow):
         self._raw_body_worker.start()
 
     def _show_raw_email_dialog(self, raw_body: str) -> None:
+        self._raw_body_worker_busy = False
         self._view_email_btn.setEnabled(bool(self._selected_email_id))
         dialog = RawEmailDialog(raw_body, self)
         # Keep a reference so the non-modal dialog is not garbage-collected.
@@ -788,6 +915,7 @@ class InboxSupervisorWindow(QMainWindow):
         dialog.show()
 
     def _on_raw_body_error(self, message: str) -> None:
+        self._raw_body_worker_busy = False
         self._view_email_btn.setEnabled(bool(self._selected_email_id))
         QMessageBox.warning(self, "View Original Email", message)
 
@@ -797,7 +925,7 @@ class InboxSupervisorWindow(QMainWindow):
             return {}
         try:
             data = json.loads(raw)
-            return data if isinstance(data, dict) else {}
+            return _normalize_extracted_keys(data) if isinstance(data, dict) else {}
         except (TypeError, ValueError):
             return {}
 
@@ -810,7 +938,9 @@ class InboxSupervisorWindow(QMainWindow):
         payload = self._parse_payload(item.data(Qt.ItemDataRole.UserRole))
         self._detail_view.setHtml(self._format_result(payload))
         self._selected_email_id = item.data(Qt.ItemDataRole.UserRole + 1) or ""
-        self._view_email_btn.setEnabled(bool(self._selected_email_id))
+        self._view_email_btn.setEnabled(
+            bool(self._selected_email_id) and not self._raw_body_worker_busy
+        )
 
         # Opening a row marks it read: drop it from the unread set and reset
         # the row's cell backgrounds to the default table background.
@@ -821,7 +951,15 @@ class InboxSupervisorWindow(QMainWindow):
     # ---- CSV export --------------------------------------------------------
 
     def _on_export_clicked(self) -> None:
-        tickets = self._db.get_all_tickets()
+        self._export_worker = ExportTicketsWorker(self._db)
+        self._export_worker.finished.connect(self._on_export_tickets_loaded)
+        self._export_worker.error.connect(self._on_export_read_error)
+        self._export_worker.start()
+
+    def _on_export_read_error(self, error_msg: str) -> None:
+        QMessageBox.critical(self, "Export Failed", f"Could not read tickets:\n{error_msg}")
+
+    def _on_export_tickets_loaded(self, tickets: list[dict[str, Any]]) -> None:
         if not tickets:
             QMessageBox.information(
                 self, "Export to CSV", "There are no tickets to export yet."

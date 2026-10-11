@@ -21,6 +21,22 @@ public final class PropertyManagementState extends AgentState {
     public static final String DISPUTE = "dispute";
     public static final String ERROR = "error";
 
+    /**
+     * Keys whose value is a typed record rather than a raw {@code String}. {@link
+     * PropertyManagementStateSerializer} uses this to convert each value back to its real type
+     * after a JSON round trip (a {@code Map<String,Object>} on its own carries no type info for
+     * nested values). Kept here, next to the accessors it backs, so a new typed field is
+     * registered in the same place it's declared — {@code
+     * PropertyManagementStateSerializerTest} independently asserts this stays in sync with every
+     * record-valued accessor below.
+     */
+    static final Map<String, Class<?>> TYPED_FIELDS = Map.of(
+            ROUTING_DATA, UniversalRoutingData.class,
+            CITY_NOTICE, CityNoticeSchema.class,
+            MAINTENANCE, MaintenanceSchema.class,
+            DISPUTE, DisputeSchema.class
+    );
+
     public PropertyManagementState(Map<String, Object> initData) {
         super(initData);
     }

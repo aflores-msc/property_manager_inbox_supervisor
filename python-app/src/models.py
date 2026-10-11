@@ -12,9 +12,14 @@ from pydantic import BaseModel, Field
 # ---------------------------------------------------------------------------
 
 class UniversalRoutingData(BaseModel):
-    """Core routing envelope extracted from every inbound email."""
+    """Core routing envelope extracted from every inbound email.
 
-    email_id: str = Field(description="Unique identifier for the email")
+    Deliberately has no ``email_id`` field: the prompt never gives the model
+    the real Gmail message id to extract, so that field only ever hallucinated
+    a value that was discarded downstream in favor of the real id threaded
+    through as plain data instead.
+    """
+
     sender_type: str = Field(description="Type of sender, e.g. 'tenant', 'city', 'vendor'")
     property_address: str = Field(description="Property street address mentioned in email")
     unit_number: str = Field(default="", description="Unit or apartment number if applicable")

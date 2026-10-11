@@ -483,7 +483,7 @@
 
           <!-- edge labels -->
           <text class="edge-label" x="270" y="42">OAuth2, gmail.readonly</text>
-          <text class="edge-label" x="330" y="105" text-anchor="end">list[dict], ≤50 unread</text>
+          <text class="edge-label" x="330" y="105" text-anchor="end">list[dict], paginated</text>
           <text class="edge-label" x="470" y="192">one email at a time</text>
           <text class="edge-label" x="118" y="336" text-anchor="middle">IGNORED</text>
           <text class="edge-label" x="345" y="336" text-anchor="middle">CITY_NOTICE</text>
@@ -550,7 +550,7 @@
             <rect x="325" y="500" width="500" height="60" rx="8"></rect>
           </g>
           <text class="box-title" x="575" y="526" text-anchor="middle">SaveTicketWorker → Database.insert_ticket()</text>
-          <text class="box-sub" x="575" y="544" text-anchor="middle">SQLite · INSERT OR IGNORE on email_id</text>
+          <text class="box-sub" x="575" y="544" text-anchor="middle">SQLite · ticket + processed_emails, one transaction</text>
 
           <!-- Row F -->
           <g class="box-neutral">
@@ -567,7 +567,7 @@
       <ul>
         <li><strong>Supervisor / router, not a ReAct loop.</strong> <span class="file-ref">src/agents.py:77-90</span> classifies once, then <code>StateGraph.add_conditional_edges</code> (<span class="file-ref">src/agents.py:153-162</span>) dispatches by string key to exactly one of three leaf nodes. There is no cycle back to the supervisor, no re-planning, no multi-step reasoning trace — this is a one-shot fan-out, closer to a `switch` statement compiled into a graph than to an autonomous agent.</li>
         <li><strong>Gateway.</strong> <code>EmailFetcher</code> (<span class="file-ref">src/email_client.py</span>) is the only class that knows about Gmail's OAuth2 desktop flow, label filters, and MIME-part recursion (<code>_extract_plain_text</code>). Everything downstream sees a flat <code>list[dict[str, str]]</code> — the seam where an IMAP or Outlook Graph client would slot in without touching <code>agents.py</code> or <code>ui.py</code>.</li>
-        <li><strong>Repository / DAO.</strong> <code>Database</code> (<span class="file-ref">src/database.py</span>) opens a fresh <code>sqlite3.connect()</code> per method rather than holding one connection open — a deliberate trade documented in its own module docstring (<span class="file-ref">src/database.py:1-6</span>): it's called from four different <code>QThread</code> subclasses, and SQLite connections aren't safe to share across threads.</li>
+        <li><strong>Repository / DAO.</strong> <code>Database</code> (<span class="file-ref">src/database.py</span>) opens a fresh <code>sqlite3.connect()</code> per method rather than holding one connection open — a deliberate trade documented in its own module docstring (<span class="file-ref">src/database.py:1-6</span>): it's called from several different <code>QThread</code> subclasses, and SQLite connections aren't safe to share across threads. Each call wraps that connection in a small context-manager helper that both commits/rolls back the transaction <em>and</em> closes the connection — <code>sqlite3.Connection</code>'s own context-manager protocol only does the former, so a bare <code>with self._connect() as conn:</code> per call used to leak a connection (and its file descriptor) every time. A second table, <code>processed_emails</code>, now tracks every classified <code>email_id</code> — ticketed or discarded as IGNORED alike — so a still-unread Gmail message doesn't get reclassified by Gemini on every fetch; see the Positive finding in <a href="#production">§05</a>.</li>
         <li><strong>Worker-thread command objects.</strong> <code>FetchEmailsWorker</code>, <code>ProcessEmailWorker</code>, <code>SaveTicketWorker</code>, <code>RawBodyWorker</code> (<span class="file-ref">src/ui.py</span>) each wrap one blocking call behind a <code>run()</code> method and two <code>pyqtSignal</code>s (<code>finished</code>, <code>error</code>). The main window never blocks; it only ever reacts to signals.</li>
       </ul>
       <p>What's conspicuously <em>not</em> here is a provider abstraction. <code>_client = genai.Client(api_key=config.GOOGLE_API_KEY)</code> is a hard-coded module-level singleton (<span class="file-ref">src/agents.py:28</span>). There is no interface that a second model provider could implement — swapping Gemini for another vendor means editing <code>agents.py</code> directly, not registering a new strategy.</p>
@@ -647,7 +647,7 @@
 
       <h3>3.4 — Concurrency: OS threads, not coroutines, and strictly serial anyway</h3>
       <p>There is no <code>asyncio</code> anywhere in this codebase. The role that virtual threads or reactive pipelines would play for concurrent I/O-bound LLM calls is filled by <code>QThread</code> — genuine OS-level threads dispatched by Qt's event loop, chosen because both the Gmail HTTP calls and <code>genai.Client.generate_content</code> are blocking, GIL-releasing I/O calls that would otherwise freeze the UI. That's the correct tool for a desktop app with one user.</p>
-      <p>But look at how the batch is actually drained: <code>_process_next_email</code> (<span class="file-ref">src/ui.py:629-643</span>) pops one email, starts one <code>ProcessEmailWorker</code>, and only calls itself again from that worker's <code>finished</code> signal. However many unread emails Gmail returns — up to the hard <code>maxResults=50</code> cap in <span class="file-ref">src/email_client.py:82</span> — exactly one Gemini call is in flight at any moment. The threading model buys UI responsiveness, not throughput; it is the opposite of a Java virtual-thread pool fanning a batch out to hundreds of concurrent calls. A free-threaded (no-GIL) CPython build would change nothing here, since the bottleneck is already network latency, not contention for the interpreter lock — there's no synergy to claim that the workload would actually benefit from.</p>
+      <p>But look at how the batch is actually drained: <code>_process_next_email</code> (<span class="file-ref">src/ui.py:692-706</span>) pops one email, starts one <code>ProcessEmailWorker</code>, and only calls itself again from that worker's <code>finished</code> signal. However many unread emails Gmail returns — paginated via <code>nextPageToken</code> in <code>EmailFetcher.fetch_unread_emails()</code> (<span class="file-ref">src/email_client.py</span>) rather than capped at a fixed page size — exactly one Gemini call is in flight at any moment. The threading model buys UI responsiveness, not throughput; it is the opposite of a Java virtual-thread pool fanning a batch out to hundreds of concurrent calls. A free-threaded (no-GIL) CPython build would change nothing here, since the bottleneck is already network latency, not contention for the interpreter lock — there's no synergy to claim that the workload would actually benefit from.</p>
     </section>
 
     <!-- ============================================================ -->
@@ -808,7 +808,7 @@ def _route_by_classification(state: PropertyManagementState) -> str:
             <dd>
               <ul>
                 <li>All three specialist nodes route straight to <code>END</code> — there is no node that could, for example, re-run the supervisor if a specialist's extraction contradicts the original classification. Once routed, a ticket cannot be reclassified within a single graph invocation.</li>
-                <li>The graph has no fallback node registered for <code>"end"</code> arriving with a populated <code>error</code> key versus a genuine <code>IGNORED</code> classification — both terminate identically, and the two cases are only disambiguated later in <span class="file-ref">src/ui.py:958-965</span> by checking which key is present.</li>
+                <li>The graph has no fallback node registered for <code>"end"</code> arriving with a populated <code>error</code> key versus a genuine <code>IGNORED</code> classification — both terminate identically at the graph level, and the two cases are only disambiguated later in <span class="file-ref">src/ui.py</span>'s <code>_on_email_processed</code> (<span class="file-ref">src/ui.py:714-741</span>), by checking <code>routing is None</code> before ever reading <code>classification</code>. That disambiguation used to matter less than it should have: a <code>None</code> routing fell back to the literal string <code>"UNKNOWN"</code>, which didn't match the <code>"IGNORED"</code> check either, so it fell through to creating a real ticket row with a blank priority — a permanent, useless row for what should have been a transient, retryable failure. Fixed by checking for a missing <code>routing_data</code> directly, before <code>classification</code> is even read, and deliberately <em>not</em> recording that email as processed, so the next fetch retries it instead of leaving the junk ticket as the only record.</li>
               </ul>
             </dd>
           </dl>
@@ -821,12 +821,17 @@ def _route_by_classification(state: PropertyManagementState) -> str:
         <div class="code-window">
           <div class="code-window-bar">
             <span class="code-window-path">src/models.py</span>
-            <span class="code-window-lines">lines 14–27 · UniversalRoutingData</span>
+            <span class="code-window-lines">lines 14–29 · UniversalRoutingData</span>
           </div>
           <pre><code>class UniversalRoutingData(BaseModel):
-    """Core routing envelope extracted from every inbound email."""
+    """Core routing envelope extracted from every inbound email.
 
-    email_id: str = Field(description="Unique identifier for the email")
+    Deliberately has no ``email_id`` field: the prompt never gives the model
+    the real Gmail message id to extract, so that field only ever hallucinated
+    a value that was discarded downstream in favor of the real id threaded
+    through as plain data instead.
+    """
+
     sender_type: str = Field(description="Type of sender, e.g. 'tenant', 'city', 'vendor'")
     property_address: str = Field(description="Property street address mentioned in email")
     unit_number: str = Field(default="", description="Unit or apartment number if applicable")
@@ -843,9 +848,9 @@ def _route_by_classification(state: PropertyManagementState) -> str:
             <dd>This class is passed by reference as <code>response_schema</code> (deep-dive 1) and constructed by keyword unpacking on the way back (deep-dive 2) — it is the single source of truth for the wire format in both directions, standing in for what a Java stack would split across a JSON-schema resource file and a separate record type.</dd>
             <dt>How it drives the model</dt>
             <dd>The two <code>Literal</code> fields are what actually constrain <code>classification</code> and <code>priority_level</code> to a closed enum at generation time — Gemini's constrained decoder can only emit one of the four (or four) listed string literals, which is a stronger guarantee than validating a free-text string after the fact.</dd>
-            <dt>Edge case: a field with nothing to extract from</dt>
+            <dt>Edge case, resolved: a field that had nothing to extract from</dt>
             <dd>
-              <code>email_id</code> is declared <code>required</code> with no default, yet the prompt that generates it (<span class="file-ref">src/agents.py:54-67</span>) never mentions an email id anywhere in its text — only <code>subject</code>, <code>sender</code>, and <code>email_text</code> are interpolated. The model has nothing to extract this field from and must fabricate a plausible-looking value on every single call. Worse, the fabricated value is never read: the ticket construction in <span class="file-ref">src/ui.py:661</span> uses <code>email_data.get("email_id", "")</code> — the real Gmail message id — and <code>routing.email_id</code> is discarded. This field costs generation tokens and adds a hallucination surface for zero downstream benefit; it's a clean argument for deleting it from the schema entirely.
+              This class used to declare <code>email_id: str = Field(description="Unique identifier for the email")</code> as a required field with no default, even though the prompt that generates it (<span class="file-ref">src/agents.py:54-67</span>) never mentions an email id anywhere in its text — only <code>subject</code>, <code>sender</code>, and <code>email_text</code> are interpolated. The model had nothing to extract that field from and had to fabricate a plausible-looking value on every single call, and the fabricated value was never even read: the ticket construction in <span class="file-ref">src/ui.py:753</span> uses <code>email_data.get("email_id", "")</code> — the real Gmail message id — while <code>routing.email_id</code> sat unused. That field cost generation tokens and added a hallucination surface for zero downstream benefit, so it's since been deleted from the schema entirely — the code above is what the class looks like today, with no functional loss anywhere it's used. The same required-but-unread shape turned up again in <span class="file-ref">src/config.py</span> — see the finding in <a href="#production">§05</a> — except there it blocked the app from starting at all rather than just wasting tokens.
             </dd>
           </dl>
         </div>
@@ -857,7 +862,7 @@ def _route_by_classification(state: PropertyManagementState) -> str:
         <div class="code-window">
           <div class="code-window-bar">
             <span class="code-window-path">src/ui.py</span>
-            <span class="code-window-lines">lines 274–298 · ProcessEmailWorker</span>
+            <span class="code-window-lines">lines 284–308 · ProcessEmailWorker</span>
           </div>
           <pre><code>class ProcessEmailWorker(QThread):
     """Run a single email through the LangGraph pipeline."""
@@ -890,7 +895,7 @@ def _route_by_classification(state: PropertyManagementState) -> str:
             <dt>Pattern</dt>
             <dd>Command object over a QThread: the entire graph invocation — both potential Gemini calls — happens inside <code>run()</code>, off the Qt main thread, with the only communication back to the UI going through two typed signals. This is what keeps the dashboard's table and progress bar responsive while a network round-trip is in flight.</dd>
             <dt>How it drives the AI pipeline</dt>
-            <dd>Note the deferred <code>from src.agents import build_graph</code> inside <code>run()</code> rather than at module scope — this defers constructing the module-level <code>genai.Client</code> singleton (<span class="file-ref">src/agents.py:28</span>) until the first email is actually processed, which is the only cold-start mitigation in the codebase (see <a href="#production">§05</a>).</dd>
+            <dd>Note the deferred <code>from src.agents import build_graph</code> inside <code>run()</code> (<span class="file-ref">src/ui.py:296</span>) rather than at module scope — this defers constructing the module-level <code>genai.Client</code> singleton (<span class="file-ref">src/agents.py:28</span>) until the first email is actually processed, which is the only cold-start mitigation in the codebase (see <a href="#production">§05</a>).</dd>
             <dt>Edge cases</dt>
             <dd>
               <ul>
@@ -924,7 +929,7 @@ def _route_by_classification(state: PropertyManagementState) -> str:
       <div class="finding">
         <span class="finding-sev sev-moderate">Moderate</span>
         <span class="finding-title">Undifferentiated error handling with no retries</span>
-        <p class="finding-body">Each node's <code>except Exception</code> (<span class="file-ref">src/agents.py:72-74, 103-105, 118-120, 133-135</span>) treats a transient 503, a rate limit, a schema-validation failure, and a JSON decode error identically — log and stuff a string into <code>state["error"]</code>. There's no retry with backoff and no circuit breaker; one flaky Gemini response permanently drops that email's extraction, surfacing only a generic message in the detail panel (<span class="file-ref">src/ui.py:958-965</span>).</p>
+        <p class="finding-body">Each node's <code>except Exception</code> (<span class="file-ref">src/agents.py:72-74, 103-105, 118-120, 133-135</span>) treats a transient 503, a rate limit, a schema-validation failure, and a JSON decode error identically — log and stuff a string into <code>state["error"]</code>. There's no retry with backoff and no circuit breaker; one flaky Gemini response permanently drops that email's extraction, surfacing only a generic message in the detail panel (<span class="file-ref">src/ui.py:1068-1074</span>).</p>
       </div>
 
       <div class="finding">
@@ -936,7 +941,7 @@ def _route_by_classification(state: PropertyManagementState) -> str:
       <div class="finding">
         <span class="finding-sev sev-info">Info</span>
         <span class="finding-title">No streaming; four sequential blocking calls per routed email</span>
-        <p class="finding-body"><code>generate_content</code> is called synchronously with no streaming variant. For a routed (non-IGNORED) email, latency is the supervisor call plus one specialist call, fully additive, with no partial output surfaced to the UI while either is in flight — the progress bar (<span class="file-ref">src/ui.py:482-486</span>) is indeterminate for exactly this reason.</p>
+        <p class="finding-body"><code>generate_content</code> is called synchronously with no streaming variant. For a routed (non-IGNORED) email, latency is the supervisor call plus one specialist call, fully additive, with no partial output surfaced to the UI while either is in flight — the progress bar (<span class="file-ref">src/ui.py:651-652</span>) is indeterminate for exactly this reason.</p>
       </div>
 
       <div class="finding">
@@ -948,13 +953,43 @@ def _route_by_classification(state: PropertyManagementState) -> str:
       <div class="finding">
         <span class="finding-sev sev-good">Positive</span>
         <span class="finding-title">Idempotent ingestion is handled correctly</span>
-        <p class="finding-body"><code>INSERT OR IGNORE</code> keyed on the <code>email_id UNIQUE</code> column (<span class="file-ref">src/database.py:59, 114-117</span>) makes re-fetching the same unread email a safe no-op rather than a constraint violation. <code>insert_ticket</code>'s return value (rows-affected) is even used correctly upstream to decide whether a row is "new" for the unread-highlight feature (<span class="file-ref">src/ui.py:325-327</span>) — this is the one place production hygiene was clearly a first-class concern.</p>
+        <p class="finding-body"><code>INSERT OR IGNORE</code> keyed on the <code>email_id UNIQUE</code> column (<span class="file-ref">src/database.py:78, 149-198</span>) makes re-fetching the same unread email a safe no-op rather than a constraint violation. <code>insert_ticket</code>'s return value (rows-affected) is even used correctly upstream to decide whether a row is "new" for the unread-highlight feature (<span class="file-ref">src/ui.py:336-337</span>) — this is the one place production hygiene was clearly a first-class concern. <code>insert_ticket</code> now writes the <code>tickets</code> row and a matching <code>processed_emails</code> row in the same transaction, too, so a crash between the two writes can't leave a ticket without a record of having been processed.</p>
+      </div>
+
+      <div class="finding">
+        <span class="finding-sev sev-good">Positive</span>
+        <span class="finding-title">Reclassification of already-processed mail is now prevented</span>
+        <p class="finding-body">The idempotency above only ever covered the <code>tickets</code> table — but an <code>IGNORED</code> email deliberately gets no ticket row, and this app's readonly Gmail scope means it never marks a message read. Against a real inbox rather than a handful of hand-sent test emails, that meant every unrelated, still-unread message (spam, newsletters, anything IGNORED) got reclassified by Gemini on every single fetch, forever, indistinguishable from genuine new work — silently burning API quota for zero new tickets. Fixed with a second table, <code>processed_emails</code>, recording every <code>email_id</code> the pipeline has finished for — ticketed or not — checked in <code>FetchEmailsWorker.run()</code> (<span class="file-ref">src/ui.py:259-282</span>) before an email is even queued for classification, not only at insert time.</p>
+      </div>
+
+      <div class="finding">
+        <span class="finding-sev sev-good">Positive</span>
+        <span class="finding-title">Gmail fetch no longer silently truncates or empties a message body</span>
+        <p class="finding-body"><code>fetch_unread_emails()</code> used to hard-cap at <code>maxResults=50</code> with no pagination, so any inbox with more than 50 unread messages had the rest simply never fetched — no error, no indication the batch was partial. It now loops on <code>nextPageToken</code> until Gmail reports none left (<span class="file-ref">src/email_client.py</span>). Separately, <code>_extract_plain_text</code> only ever read a <code>text/plain</code> MIME part; an HTML-only message (common from webmail/mobile clients) yielded an empty body, so the supervisor's prompt had nothing to classify from beyond subject and sender. It now falls back to a lightly stripped <code>text/html</code> part rather than returning empty.</p>
       </div>
 
       <div class="finding">
         <span class="finding-sev sev-good">Positive</span>
         <span class="finding-title">Cold start is deferred, not eliminated</span>
-        <p class="finding-body">Deferring <code>from src.agents import build_graph</code> to inside <code>ProcessEmailWorker.run()</code> (<span class="file-ref">src/ui.py:286</span>) means the <code>genai.Client</code> singleton isn't constructed until the first email actually needs processing, keeping app launch itself fast. It's still a bare module-level singleton with no documented thread-safety guarantee for the (currently hypothetical) case where two workers ever run concurrently — see <a href="#runtime">§3.4</a> — but as a launch-latency mitigation it's a real, working choice.</p>
+        <p class="finding-body">Deferring <code>from src.agents import build_graph</code> to inside <code>ProcessEmailWorker.run()</code> (<span class="file-ref">src/ui.py:296</span>) means the <code>genai.Client</code> singleton isn't constructed until the first email actually needs processing, keeping app launch itself fast. It's still a bare module-level singleton with no documented thread-safety guarantee for the (currently hypothetical) case where two workers ever run concurrently — see <a href="#runtime">§3.4</a> — but as a launch-latency mitigation it's a real, working choice.</p>
+      </div>
+
+      <div class="finding">
+        <span class="finding-sev sev-good">Positive</span>
+        <span class="finding-title">Two required config fields that nothing read were blocking every fresh install</span>
+        <p class="finding-body"><code>AppSettings</code> (<span class="file-ref">src/config.py</span>) declared <code>MANAGER_EMAIL</code> and <code>EMAIL_USERNAME</code> as required fields with no default — but grepping the entire codebase for <code>config.MANAGER_EMAIL</code> or <code>config.EMAIL_USERNAME</code> turns up zero usages beyond the declaration itself, and <code>.env.example</code>'s own comment already admitted <code>EMAIL_USERNAME</code> was "display / reference only" (a display that never actually happened anywhere). The same dead-required-field shape flagged for <code>UniversalRoutingData.email_id</code> in deep-dive 4, except fatal here rather than just wasteful: a fresh <code>~/.property_manager_ai/.env</code> with only <code>GOOGLE_API_KEY</code> set — the one value the app actually uses — failed Pydantic validation outright, and (before the next finding) did so silently inside a background thread rather than with a message pointing at the cause. Both fields have since been deleted from the schema, from <code>.env.example</code>, and from the README's config table.</p>
+      </div>
+
+      <div class="finding">
+        <span class="finding-sev sev-good">Positive</span>
+        <span class="finding-title">Config validation moved from a buried background thread to app startup</span>
+        <p class="finding-body"><code>AppSettings()</code> validates at <em>import</em> time (<span class="file-ref">src/config.py:28</span>), but nothing imported <code>src.config</code> until <code>ProcessEmailWorker.run()</code>'s deferred <code>from src.agents import build_graph</code> (deep-dive 5) — itself wrapped in a broad <code>except Exception</code>. A missing or invalid <code>.env</code> therefore didn't crash the app before the window ever appeared; the window opened normally, and only the <em>first email processed</em> surfaced a raw <code>pydantic.ValidationError</code> string in the status bar, with nothing in the UI hinting the actual cause was configuration rather than Gmail or Gemini. <code>main.py</code> now imports <code>src.config</code> directly after constructing <code>QApplication</code> but before building the main window, catching that exception with a <code>QMessageBox</code> naming the missing fields and where to fix them — the same failure, surfaced roughly a hundred lines and one user action earlier.</p>
+      </div>
+
+      <div class="finding">
+        <span class="finding-sev sev-good">Positive</span>
+        <span class="finding-title">A second, independent Java implementation shares this app's database — in a different JSON casing</span>
+        <p class="finding-body">This repository holds two separate implementations of the same email-triage pipeline: this Python/PyQt6 app, and a Java/LangGraph4j/Spring AI port (<code>java-app/</code>) built to mirror it feature-for-feature. Both are configured to read and write the exact same SQLite file, <code>~/.property_manager_ai/property_manager.db</code> — a ticket either one classifies is immediately visible to the other, no sync step involved. That sharing surfaced a real format mismatch: <code>tickets.extracted_json</code> is plain JSON, written by whichever app actually processed a given email, and the Java side's Jackson-based serializer emits its record fields' own camelCase names verbatim — <code>routingData</code>, <code>propertyAddress</code>, <code>disputeType</code>, and so on, all the way into nested objects — while every reader here (the detail panel's <code>_format_result</code>, the table's Property Address column in <code>_refresh_table_from_db</code>, CSV export's <code>_flatten_ticket</code>) expects this app's own snake_case keys. A ticket the Java port created rendered with a blank Property Address column and "No details available." in the detail panel, with no exception anywhere: <code>result.get("routing_data")</code> against a payload keyed <code>routingData</code> just returns <code>None</code>, which every one of those call sites already treats as a legitimate "nothing extracted yet" state (see deep-dive 2's <code>state.get("routing_data")</code> guards). Fixed at a single point: <code>_parse_payload</code> now recursively converts camelCase keys to snake_case — a no-op against this app's own already-snake_case output — before any renderer ever sees the parsed dict, so a ticket displays identically no matter which port created it.</p>
       </div>
     </section>
 

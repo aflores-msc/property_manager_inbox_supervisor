@@ -10,29 +10,26 @@ import static org.bsc.langgraph4j.StateGraph.START;
 import static org.bsc.langgraph4j.action.AsyncEdgeAction.edge_async;
 import static org.bsc.langgraph4j.action.AsyncNodeAction.node_async;
 
-/** Constructs and compiles the LangGraph4j property management pipeline. Mirrors {@code agents.py:build_graph}. */
+/**
+ * Constructs and compiles the LangGraph4j property management pipeline. Mirrors {@code agents.py:build_graph}.
+ *
+ * <p>The graph's structure (nodes, edges) never changes at runtime, so it's compiled exactly
+ * once here, at bean construction — a {@code GraphStateException} at startup means the graph
+ * itself is malformed and fails fast, rather than surfacing per-email later. The same
+ * {@link CompiledGraph} is then reused for every {@code invoke()} call.
+ */
 @Component
 public class EstateBeaconGraph {
 
-    private final SupervisorNode supervisorNode;
-    private final LegalAgentNode legalAgentNode;
-    private final MaintenanceAgentNode maintenanceAgentNode;
-    private final DisputeAgentNode disputeAgentNode;
+    private final CompiledGraph<PropertyManagementState> compiledGraph;
 
     public EstateBeaconGraph(
             SupervisorNode supervisorNode,
             LegalAgentNode legalAgentNode,
             MaintenanceAgentNode maintenanceAgentNode,
             DisputeAgentNode disputeAgentNode
-    ) {
-        this.supervisorNode = supervisorNode;
-        this.legalAgentNode = legalAgentNode;
-        this.maintenanceAgentNode = maintenanceAgentNode;
-        this.disputeAgentNode = disputeAgentNode;
-    }
-
-    public CompiledGraph<PropertyManagementState> compile() throws GraphStateException {
-        StateGraph<PropertyManagementState> graph = new StateGraph<>(PropertyManagementState::new)
+    ) throws GraphStateException {
+        StateGraph<PropertyManagementState> graph = new StateGraph<>(new PropertyManagementStateSerializer())
                 .addNode("supervisor", node_async(supervisorNode))
                 .addNode(ClassificationRouter.LEGAL_AGENT, node_async(legalAgentNode))
                 .addNode(ClassificationRouter.MAINTENANCE_AGENT, node_async(maintenanceAgentNode))
@@ -52,6 +49,10 @@ public class EstateBeaconGraph {
                 .addEdge(ClassificationRouter.MAINTENANCE_AGENT, END)
                 .addEdge(ClassificationRouter.DISPUTE_AGENT, END);
 
-        return graph.compile();
+        this.compiledGraph = graph.compile();
+    }
+
+    public CompiledGraph<PropertyManagementState> compiledGraph() {
+        return compiledGraph;
     }
 }

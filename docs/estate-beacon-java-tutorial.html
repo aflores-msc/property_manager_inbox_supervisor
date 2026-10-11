@@ -1,0 +1,1018 @@
+<title>Estate Beacon Java Field Manual</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+  :root{
+    --bg:#f7f2e7;
+    --surface:#ffffff;
+    --surface-alt:#efe6d2;
+    --border:#ddceac;
+    --ink:#2a2318;
+    --ink-muted:#6f6350;
+    --accent:#1f6f6b;
+    --accent-ink:#f2fbfa;
+    --accent-soft: rgba(31,111,107,0.10);
+    --accent-soft-border: rgba(31,111,107,0.35);
+    --code-bg:#1c1a22;
+    --code-ink:#e4dfd2;
+    --code-border:#332f3d;
+    --sev-critical:#a8342a;
+    --sev-critical-soft:rgba(168,52,42,0.09);
+    --sev-moderate:#8a5a0a;
+    --sev-moderate-soft:rgba(138,90,10,0.09);
+    --sev-info:#375f8c;
+    --sev-info-soft:rgba(55,95,140,0.08);
+    --sev-good:#3f7a45;
+    --sev-good-soft:rgba(63,122,69,0.09);
+  }
+
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#1c1c26;
+      --surface:#181822;
+      --surface-alt:#232331;
+      --border:#33334a;
+      --ink:#d9dcef;
+      --ink-muted:#9a9fc0;
+      --accent:#4fd1c5;
+      --accent-ink:#0c211f;
+      --accent-soft: rgba(79,209,197,0.13);
+      --accent-soft-border: rgba(79,209,197,0.4);
+      --code-bg:#131219;
+      --code-ink:#dcd8e8;
+      --code-border:#2b2938;
+      --sev-critical:#e2685c;
+      --sev-critical-soft:rgba(226,104,92,0.12);
+      --sev-moderate:#d9a441;
+      --sev-moderate-soft:rgba(217,164,65,0.12);
+      --sev-info:#7fb0e6;
+      --sev-info-soft:rgba(127,176,230,0.12);
+      --sev-good:#7ec98a;
+      --sev-good-soft:rgba(126,201,138,0.12);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#1c1c26;
+    --surface:#181822;
+    --surface-alt:#232331;
+    --border:#33334a;
+    --ink:#d9dcef;
+    --ink-muted:#9a9fc0;
+    --accent:#4fd1c5;
+    --accent-ink:#0c211f;
+    --accent-soft: rgba(79,209,197,0.13);
+    --accent-soft-border: rgba(79,209,197,0.4);
+    --code-bg:#131219;
+    --code-ink:#dcd8e8;
+    --code-border:#2b2938;
+    --sev-critical:#e2685c;
+    --sev-critical-soft:rgba(226,104,92,0.12);
+    --sev-moderate:#d9a441;
+    --sev-moderate-soft:rgba(217,164,65,0.12);
+    --sev-info:#7fb0e6;
+    --sev-info-soft:rgba(127,176,230,0.12);
+    --sev-good:#7ec98a;
+    --sev-good-soft:rgba(126,201,138,0.12);
+  }
+
+  *{box-sizing:border-box;}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:'IBM Plex Sans', system-ui, sans-serif;
+    font-size:16px;
+    line-height:1.6;
+  }
+  h1,h2,h3,h4{
+    font-family:'Fraunces', Georgia, serif;
+    color:var(--ink);
+    text-wrap:balance;
+    font-weight:600;
+    line-height:1.15;
+  }
+  a{color:var(--accent);}
+  code, pre, .mono{font-family:'IBM Plex Mono', ui-monospace, monospace;}
+
+  .shell{
+    max-width:1240px;
+    margin:0 auto;
+    display:grid;
+    grid-template-columns: 230px minmax(0,1fr);
+    gap:56px;
+    padding:0 32px 96px;
+  }
+  @media (max-width: 980px){
+    .shell{grid-template-columns:1fr; padding:0 20px 72px;}
+    .toc{display:none;}
+  }
+
+  /* ---------- Hero ---------- */
+  .hero{
+    grid-column:1/-1;
+    padding:64px 32px 44px;
+    max-width:1240px;
+    margin:0 auto;
+    width:100%;
+  }
+  .kicker{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:12.5px;
+    letter-spacing:0.14em;
+    text-transform:uppercase;
+    color:var(--accent);
+    margin:0 0 14px;
+  }
+  .hero h1{
+    font-size:clamp(2.1rem, 4.2vw, 3.1rem);
+    margin:0 0 16px;
+    max-width:18ch;
+  }
+  .hero .lede{
+    font-size:1.15rem;
+    color:var(--ink-muted);
+    max-width:68ch;
+    margin:0 0 24px;
+  }
+  .stack-badges{
+    display:flex;
+    flex-wrap:wrap;
+    gap:8px;
+    margin-bottom:28px;
+  }
+  .badge{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:12.5px;
+    padding:5px 11px;
+    border-radius:5px;
+    background:var(--surface-alt);
+    border:1px solid var(--border);
+    color:var(--ink-muted);
+  }
+  .abstract{
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-left:4px solid var(--accent);
+    border-radius:8px;
+    padding:20px 24px;
+    max-width:74ch;
+    font-size:0.97rem;
+    color:var(--ink-muted);
+  }
+  .abstract strong{color:var(--ink);}
+
+  /* ---------- TOC ---------- */
+  .toc{
+    position:sticky;
+    top:32px;
+    align-self:start;
+    padding-top:8px;
+  }
+  .toc-label{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:11px;
+    letter-spacing:0.12em;
+    text-transform:uppercase;
+    color:var(--ink-muted);
+    margin-bottom:10px;
+  }
+  .toc ol{
+    list-style:none;
+    margin:0; padding:0;
+    border-left:1px solid var(--border);
+  }
+  .toc li{margin:0;}
+  .toc a{
+    display:block;
+    padding:7px 0 7px 16px;
+    font-size:13.5px;
+    color:var(--ink-muted);
+    text-decoration:none;
+    border-left:2px solid transparent;
+    margin-left:-1px;
+  }
+  .toc a:hover{color:var(--ink); border-left-color:var(--accent);}
+  .toc .num{font-family:'IBM Plex Mono',monospace; color:var(--accent); margin-right:6px;}
+
+  /* ---------- Article ---------- */
+  main{min-width:0;}
+  section{
+    padding-top:56px;
+    border-top:1px solid var(--border);
+    margin-top:56px;
+  }
+  section:first-of-type{border-top:none; margin-top:0; padding-top:0;}
+
+  .section-eyebrow{
+    display:flex;
+    align-items:baseline;
+    gap:12px;
+    margin-bottom:6px;
+  }
+  .section-eyebrow .num{
+    font-family:'IBM Plex Mono', monospace;
+    color:var(--accent);
+    font-size:1rem;
+  }
+  section h2{font-size:1.7rem; margin:0 0 18px;}
+  section h3{font-size:1.2rem; margin:32px 0 10px; color:var(--accent);}
+  p{max-width:74ch; margin:0 0 16px;}
+  ul, ol.plain{max-width:74ch; margin:0 0 16px; padding-left:22px;}
+  li{margin-bottom:6px;}
+  .file-ref{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:0.85em;
+    background:var(--surface-alt);
+    border:1px solid var(--border);
+    padding:1px 6px;
+    border-radius:4px;
+    color:var(--ink-muted);
+    white-space:nowrap;
+  }
+
+  /* ---------- Diagram ---------- */
+  figure.diagram{
+    margin:28px 0 8px;
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:12px;
+    padding:20px 16px 12px;
+    overflow-x:auto;
+  }
+  figure.diagram svg{width:100%; height:auto; min-width:640px; display:block; color:var(--ink);}
+  figure.diagram figcaption{
+    font-size:0.85rem;
+    color:var(--ink-muted);
+    margin-top:10px;
+    padding:0 8px;
+  }
+  .box-neutral rect{fill:var(--surface-alt); stroke:var(--ink-muted); stroke-width:1.2;}
+  .box-accent rect{fill:var(--accent-soft); stroke:var(--accent); stroke-width:1.6;}
+  .box-dashed rect{fill:none; stroke:var(--ink-muted); stroke-width:1.2; stroke-dasharray:5 4;}
+  .box-title{font-weight:600; font-size:13px;}
+  .box-sub{font-size:10.5px; opacity:0.72;}
+  .edge-label{font-size:10.5px; opacity:0.75;}
+  .flow-line{stroke:currentColor; stroke-width:1.4; fill:none;}
+  .flow-line-dashed{stroke:var(--ink-muted); stroke-width:1.2; fill:none; stroke-dasharray:4 4;}
+
+  /* ---------- Small inline diagram (graph mechanics) ---------- */
+  figure.micro{
+    margin:22px 0 8px;
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:10px;
+    padding:16px 14px 10px;
+    overflow-x:auto;
+  }
+  figure.micro svg{width:100%; height:auto; min-width:520px; display:block; color:var(--ink);}
+  figure.micro figcaption{font-size:0.82rem; color:var(--ink-muted); margin-top:8px; padding:0 6px;}
+
+  /* ---------- Code windows ---------- */
+  .code-window{
+    margin:22px 0 28px;
+    border-radius:10px;
+    overflow:hidden;
+    border:1px solid var(--code-border);
+    background:var(--code-bg);
+  }
+  .code-window-bar{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:12px;
+    padding:9px 14px;
+    background:var(--surface-alt);
+    border-bottom:1px solid var(--code-border);
+    flex-wrap:wrap;
+  }
+  .code-window-path{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:12.5px;
+    color:var(--ink);
+    font-weight:500;
+  }
+  .code-window-lines{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:11px;
+    color:var(--ink-muted);
+    background:var(--bg);
+    border:1px solid var(--border);
+    padding:2px 8px;
+    border-radius:99px;
+  }
+  .code-window pre{
+    margin:0;
+    padding:16px 18px;
+    overflow-x:auto;
+    color:var(--code-ink);
+    font-size:13px;
+    line-height:1.55;
+  }
+  .code-window code{white-space:pre;}
+
+  /* ---------- Deep-dive block ---------- */
+  .deepdive{
+    margin-bottom:52px;
+    padding-bottom:8px;
+  }
+  .deepdive-head{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    margin-bottom:4px;
+  }
+  .deepdive-index{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:12px;
+    color:var(--accent-ink);
+    background:var(--accent);
+    width:24px; height:24px;
+    border-radius:6px;
+    display:flex; align-items:center; justify-content:center;
+    flex-shrink:0;
+  }
+  .deepdive h3{margin:0;}
+  .annot{
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:10px;
+    padding:4px 20px;
+  }
+  .annot dl{margin:0;}
+  .annot dt{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:11.5px;
+    text-transform:uppercase;
+    letter-spacing:0.05em;
+    color:var(--accent);
+    margin-top:16px;
+  }
+  .annot dd{margin:6px 0 0; padding-bottom:6px;}
+  .annot dd ul{margin:6px 0 0; padding-left:20px;}
+
+  /* ---------- Findings ---------- */
+  .finding{
+    display:grid;
+    grid-template-columns:auto 1fr;
+    gap:4px 14px;
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:10px;
+    padding:16px 18px;
+    margin-bottom:16px;
+  }
+  .finding-sev{
+    grid-row:1/3;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:10.5px;
+    letter-spacing:0.06em;
+    font-weight:600;
+    padding:3px 9px;
+    border-radius:5px;
+    height:fit-content;
+    white-space:nowrap;
+  }
+  .sev-critical{background:var(--sev-critical-soft); color:var(--sev-critical); border:1px solid var(--sev-critical);}
+  .sev-moderate{background:var(--sev-moderate-soft); color:var(--sev-moderate); border:1px solid var(--sev-moderate);}
+  .sev-info{background:var(--sev-info-soft); color:var(--sev-info); border:1px solid var(--sev-info);}
+  .sev-good{background:var(--sev-good-soft); color:var(--sev-good); border:1px solid var(--sev-good);}
+  .finding-title{font-weight:600; align-self:end;}
+  .finding-body{margin:0; color:var(--ink-muted); font-size:0.94rem;}
+  .finding-body .file-ref{margin-left:2px;}
+
+  footer.colophon{
+    grid-column:1/-1;
+    max-width:1240px;
+    margin:64px auto 0;
+    padding:24px 32px 0;
+    border-top:1px solid var(--border);
+    font-size:0.85rem;
+    color:var(--ink-muted);
+  }
+</style>
+
+<div class="hero">
+  <p class="kicker">Architectural field manual · Estate Beacon on the JVM</p>
+  <h1>Orchestrating a triage pipeline with LangGraph4j</h1>
+  <p class="lede">A trace through <code>java-app</code> — Spring Boot 4, Spring AI 2, and LangGraph4j turning a Gmail inbox into a triaged, structured SQLite queue. The center of gravity is LangGraph4j: how a compiled graph actually executes a request, what its state model does and doesn't guarantee, and three real bugs that only surfaced once it ran against a live Gemini key and a real inbox.</p>
+  <div class="stack-badges">
+    <span class="badge">Java 25</span>
+    <span class="badge">Spring Boot 4.1.1</span>
+    <span class="badge">Spring AI 2.0.1</span>
+    <span class="badge">LangGraph4j 1.8.27</span>
+    <span class="badge">JavaFX 25 + AtlantaFX</span>
+    <span class="badge">sqlite-jdbc</span>
+  </div>
+  <div class="abstract">
+    <strong>Audience.</strong> Senior/staff engineers evaluating or building agentic systems on Spring Boot. This assumes you already know Spring's DI model, JavaFX's application lifecycle, and what a JSON schema is — it won't re-explain those. What it does explain in depth is the part most write-ups skip: how LangGraph4j's graph engine actually runs a request end to end, what it validates at compile time versus what it only discovers at runtime, and how that shows up as real bugs.
+  </div>
+</div>
+
+<div class="shell">
+  <nav class="toc">
+    <p class="toc-label">Contents</p>
+    <ol>
+      <li><a href="#blueprint"><span class="num">01</span>Blueprint &amp; domain flow</a></li>
+      <li><a href="#langgraph4j"><span class="num">02</span>LangGraph4j: the orchestration core</a></li>
+      <li><a href="#springai"><span class="num">03</span>Spring AI: the model layer</a></li>
+      <li><a href="#runtime"><span class="num">04</span>Java 25 &amp; Spring Boot 4 runtime</a></li>
+      <li><a href="#deepdives"><span class="num">05</span>Verbatim deep-dives</a></li>
+      <li><a href="#production"><span class="num">06</span>Bugs found running it live</a></li>
+    </ol>
+  </nav>
+
+  <main>
+
+    <!-- ============================================================ -->
+    <section id="blueprint">
+      <div class="section-eyebrow"><span class="num">01</span></div>
+      <h2>Architectural blueprint &amp; domain flow</h2>
+      <p>This is a Spring application context wearing a JavaFX window. That ordering matters: Spring's <code>ApplicationContext</code> is built first, inside the JavaFX launcher's own <code>init()</code> callback, and only once every bean — the Gmail client, the four LangGraph4j node classes, the JDBC repository, the compiled-on-demand graph factory — is fully wired does control pass to JavaFX's <code>start(Stage)</code> to actually draw a window. Dependency injection belongs to Spring end to end; JavaFX only ever owns the pixels.</p>
+
+      <figure class="diagram">
+        <svg viewBox="0 0 920 680" role="img" aria-label="Flow diagram: Gmail inbox through GmailEmailFetcher, into an InboundEmail record, through TicketProcessingService invoking the LangGraph4j graph's SupervisorNode, branching to one of three specialist agent nodes or ending on IGNORED, then converging on TicketRepository writing to SQLite and finally refreshing the JavaFX DashboardView.">
+          <defs>
+            <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+              <path d="M0,0 L10,5 L0,10 z" fill="currentColor"></path>
+            </marker>
+          </defs>
+
+          <line class="flow-line" x1="260" y1="50" x2="336" y2="50" marker-end="url(#arrow)"></line>
+          <line class="flow-line" x1="490" y1="80" x2="462" y2="116" marker-end="url(#arrow)"></line>
+          <line class="flow-line" x1="460" y1="170" x2="460" y2="206" marker-end="url(#arrow)"></line>
+
+          <line class="flow-line" x1="460" y1="270" x2="118" y2="346" marker-end="url(#arrow)"></line>
+          <line class="flow-line" x1="460" y1="270" x2="345" y2="346" marker-end="url(#arrow)"></line>
+          <line class="flow-line" x1="460" y1="270" x2="575" y2="346" marker-end="url(#arrow)"></line>
+          <line class="flow-line" x1="460" y1="270" x2="802" y2="346" marker-end="url(#arrow)"></line>
+
+          <line class="flow-line-dashed" x1="115" y1="420" x2="115" y2="462" marker-end="url(#arrow)"></line>
+
+          <line class="flow-line" x1="345" y1="420" x2="345" y2="496" marker-end="url(#arrow)"></line>
+          <line class="flow-line" x1="575" y1="420" x2="575" y2="496" marker-end="url(#arrow)"></line>
+          <line class="flow-line" x1="805" y1="420" x2="805" y2="496" marker-end="url(#arrow)"></line>
+
+          <line class="flow-line" x1="575" y1="560" x2="575" y2="596" marker-end="url(#arrow)"></line>
+
+          <text class="edge-label" x="270" y="42">OAuth2 desktop flow</text>
+          <text class="edge-label" x="330" y="105" text-anchor="end">List&lt;InboundEmail&gt;, paginated</text>
+          <text class="edge-label" x="470" y="192">graph.invoke(Map)</text>
+          <text class="edge-label" x="118" y="336" text-anchor="middle">IGNORED</text>
+          <text class="edge-label" x="345" y="336" text-anchor="middle">CITY_NOTICE</text>
+          <text class="edge-label" x="575" y="336" text-anchor="middle">MAINTENANCE</text>
+          <text class="edge-label" x="802" y="336" text-anchor="middle">TENANT_DISPUTE</text>
+          <text class="edge-label" x="126" y="445">markProcessed(), no ticket row</text>
+          <text class="edge-label" x="585" y="480">insertTicketAndMarkProcessed()</text>
+          <text class="edge-label" x="585" y="582">tickets.setAll()</text>
+
+          <g class="box-neutral">
+            <rect x="40" y="20" width="220" height="60" rx="8"></rect>
+          </g>
+          <text class="box-title" x="150" y="46" text-anchor="middle">Gmail inbox</text>
+          <text class="box-sub" x="150" y="64" text-anchor="middle">UNREAD, INBOX labels</text>
+
+          <g class="box-neutral">
+            <rect x="336" y="20" width="304" height="60" rx="8"></rect>
+          </g>
+          <text class="box-title" x="488" y="46" text-anchor="middle">GmailEmailFetcher.fetchUnreadEmails()</text>
+          <text class="box-sub" x="488" y="64" text-anchor="middle">com.estatebeacon.email</text>
+
+          <g class="box-neutral">
+            <rect x="310" y="120" width="300" height="50" rx="8"></rect>
+          </g>
+          <text class="box-title" x="460" y="141" text-anchor="middle">TicketProcessingService.process()</text>
+          <text class="box-sub" x="460" y="158" text-anchor="middle">one InboundEmail record at a time</text>
+
+          <g class="box-accent">
+            <rect x="310" y="210" width="300" height="60" rx="8"></rect>
+          </g>
+          <text class="box-title" x="460" y="236" text-anchor="middle">SupervisorNode</text>
+          <text class="box-sub" x="460" y="254" text-anchor="middle">Gemini #1 → UniversalRoutingData</text>
+
+          <g class="box-dashed">
+            <rect x="15" y="350" width="200" height="70" rx="8"></rect>
+          </g>
+          <text class="box-title" x="115" y="380" text-anchor="middle">StateGraph.END</text>
+          <text class="box-sub" x="115" y="398" text-anchor="middle">ClassificationRouter → END</text>
+
+          <g class="box-accent">
+            <rect x="245" y="350" width="200" height="70" rx="8"></rect>
+          </g>
+          <text class="box-title" x="345" y="380" text-anchor="middle">LegalAgentNode</text>
+          <text class="box-sub" x="345" y="398" text-anchor="middle">Gemini #2 → CityNoticeSchema</text>
+
+          <g class="box-accent">
+            <rect x="475" y="350" width="200" height="70" rx="8"></rect>
+          </g>
+          <text class="box-title" x="575" y="380" text-anchor="middle">MaintenanceAgentNode</text>
+          <text class="box-sub" x="575" y="398" text-anchor="middle">Gemini #2 → MaintenanceSchema</text>
+
+          <g class="box-accent">
+            <rect x="705" y="350" width="200" height="70" rx="8"></rect>
+          </g>
+          <text class="box-title" x="805" y="380" text-anchor="middle">DisputeAgentNode</text>
+          <text class="box-sub" x="805" y="398" text-anchor="middle">Gemini #2 → DisputeSchema</text>
+
+          <g class="box-neutral">
+            <rect x="325" y="500" width="500" height="60" rx="8"></rect>
+          </g>
+          <text class="box-title" x="575" y="526" text-anchor="middle">TicketRepository (sqlite-jdbc)</text>
+          <text class="box-sub" x="575" y="544" text-anchor="middle">tickets + processed_emails tables</text>
+
+          <g class="box-neutral">
+            <rect x="325" y="600" width="500" height="60" rx="8"></rect>
+          </g>
+          <text class="box-title" x="575" y="626" text-anchor="middle">DashboardView (JavaFX)</text>
+          <text class="box-sub" x="575" y="644" text-anchor="middle">Spring singleton bean · UI built lazily in buildRoot()</text>
+        </svg>
+        <figcaption>Everything inside the accent-highlighted boxes is one LangGraph4j-managed node; everything else is plain Spring-wired Java. Exactly two Gemini calls happen per routed email, never more, regardless of how the routing resolves.</figcaption>
+      </figure>
+
+      <h3>The patterns holding it together</h3>
+      <ul>
+        <li><strong>Router.</strong> <code>ClassificationRouter</code> is a pure function from state to a routing key — no side effects, trivially unit-testable in isolation from the graph that calls it.</li>
+        <li><strong>Gateway.</strong> <code>GmailEmailFetcher</code> isolates every Google API type (<code>GoogleAuthorizationCodeFlow</code>, <code>Gmail.Builder</code>, <code>MessagePart</code>) behind one method returning a flat <code>List&lt;InboundEmail&gt;</code> — the seam where a different mail provider would slot in without touching the graph or the persistence layer.</li>
+        <li><strong>Repository.</strong> <code>TicketRepository</code> opens a fresh JDBC connection per call rather than holding one open — not primarily for concurrency within this process (SQLite serializes writes at the file level regardless of how many local connections exist), but because <code>property_manager.db</code> is genuinely shared across <em>processes</em> with the separate Python app. Every connection sets a <code>busy_timeout</code> pragma, so a call that lands while the Python side briefly holds the file's write lock retries instead of failing outright with <code>SQLITE_BUSY</code>.</li>
+        <li><strong>Command object via <code>Task&lt;T&gt;</code>.</strong> <code>DashboardView</code> runs the whole fetch-and-classify batch as one JavaFX <code>Task</code> on a single-threaded <code>ExecutorService</code>, using <code>Task</code>'s built-in <code>messageProperty()</code>/<code>progressProperty()</code>/<code>setOnSucceeded</code> to get thread-safe UI updates without hand-rolling a signal mechanism.</li>
+      </ul>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="langgraph4j">
+      <div class="section-eyebrow"><span class="num">02</span></div>
+      <h2>LangGraph4j: the orchestration core</h2>
+      <p>Everything upstream of the database funnels through one library. LangGraph4j is a Java-native graph engine purpose-built for exactly this shape of problem: a request that gets classified once, then handed to exactly one of several specialist handlers. This section is about the mechanics underneath <code>EstateBeaconGraph.compile()</code> — what actually happens when that method runs, and again when the resulting graph is invoked.</p>
+
+      <h3>2.1 — LangGraph's vocabulary: graphs, state, nodes, edges, and loops</h3>
+      <p>Before getting into how <code>EstateBeaconGraph</code> uses the library, it's worth naming the handful of concepts LangGraph (and its Java port, LangGraph4j) is actually built from — the same five ideas whether the graph is this app's one-shot classifier or a multi-turn, tool-calling agent.</p>
+      <ul>
+        <li><strong>State.</strong> One shared object — in practice a typed wrapper over a map — that every node reads from and writes to. It's the only thing that flows through the graph; nodes never call each other directly or pass their own return values around.</li>
+        <li><strong>Node.</strong> A plain function: <code>(state) → partial update</code>. A node reads whatever keys it needs off the current state and returns the subset it wants changed. What a node actually does — call a model, hit an API, run a database query — is entirely up to the code inside it; LangGraph only cares about its signature.</li>
+        <li><strong>Edge.</strong> A static wire from one node to the next: "after A finishes, always run B." A <strong>conditional edge</strong> is the dynamic version — a router function inspects the current state and returns the name of whichever node should run next, chosen from a fixed set of candidates (§2.4 below covers exactly how that name gets resolved).</li>
+        <li><strong>Graph.</strong> The full collection of nodes and edges, built up declaratively (<code>addNode</code>, <code>addEdge</code>, <code>addConditionalEdges</code>) and then compiled once into something runnable. <code>START</code> and <code>END</code> are sentinel markers, not real nodes — every graph has exactly one entry edge from <code>START</code>, and execution stops the moment any path reaches <code>END</code>.</li>
+        <li><strong>Loop.</strong> Nothing more than an edge that points back to a node already visited earlier in the same run. Nothing about a directed graph forbids revisiting a node — it's the mechanism LangGraph uses to express "keep going until some condition holds": an agent that calls a tool, reads the result, and decides whether to call another tool or answer, is a two-node loop between an agent node and a tool node, with a conditional edge doing the "call another tool, or stop" check on every pass.</li>
+      </ul>
+      <figure class="micro">
+        <svg viewBox="0 0 680 260" role="img" aria-label="Diagram: START flows into an Agent node, which has a conditional edge either looping to a Tool node and back to the Agent node again, or exiting to END.">
+          <defs>
+            <marker id="arrow3" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+              <path d="M0,0 L10,5 L0,10 z" fill="currentColor"></path>
+            </marker>
+          </defs>
+
+          <rect x="20" y="20" width="100" height="42" rx="8" fill="none" stroke="currentColor" stroke-width="1.2" stroke-dasharray="4 3"></rect>
+          <text x="70" y="46" text-anchor="middle" font-size="12" font-weight="600" fill="currentColor">START</text>
+
+          <rect x="190" y="95" width="150" height="58" rx="8" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.6"></rect>
+          <text x="265" y="120" text-anchor="middle" font-size="12" font-weight="600" fill="currentColor">Agent node</text>
+          <text x="265" y="137" text-anchor="middle" font-size="10" opacity="0.72" fill="currentColor">decides: tool or answer</text>
+
+          <rect x="470" y="95" width="150" height="58" rx="8" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.6"></rect>
+          <text x="545" y="120" text-anchor="middle" font-size="12" font-weight="600" fill="currentColor">Tool node</text>
+          <text x="545" y="137" text-anchor="middle" font-size="10" opacity="0.72" fill="currentColor">runs, writes result to state</text>
+
+          <rect x="195" y="200" width="140" height="42" rx="8" fill="none" stroke="currentColor" stroke-width="1.2" stroke-dasharray="4 3"></rect>
+          <text x="265" y="226" text-anchor="middle" font-size="12" font-weight="600" fill="currentColor">END</text>
+
+          <path class="flow-line" d="M70,62 L70,124 L188,124" marker-end="url(#arrow3)"></path>
+
+          <path class="flow-line" d="M340,112 L468,112" marker-end="url(#arrow3)"></path>
+          <text x="404" y="102" text-anchor="middle" font-size="10" opacity="0.75" fill="currentColor">needs a tool</text>
+
+          <path class="flow-line" d="M470,140 C 420,180 360,180 342,144" marker-end="url(#arrow3)"></path>
+          <text x="400" y="185" text-anchor="middle" font-size="10" opacity="0.75" fill="currentColor">tool result → state, loop back</text>
+
+          <path class="flow-line" d="M245,153 L235,198" marker-end="url(#arrow3)"></path>
+          <text x="180" y="180" text-anchor="middle" font-size="10" opacity="0.75" fill="currentColor">has final answer</text>
+        </svg>
+        <figcaption>The generic LangGraph shape behind most tool-calling agents: a two-node cycle where a conditional edge re-evaluates the state on every pass and decides whether to loop again or exit to <code>END</code>. <code>EstateBeaconGraph</code> (§2.8) never takes the looping branch — every path through it visits at most two nodes before reaching <code>END</code> — but the engine underneath is the same one this shape runs on.</figcaption>
+      </figure>
+      <p>Two things keep a loop from running forever. First, whatever the conditional edge's routing function reads has to actually change between passes — a tool's result gets written into state, a retry counter increments, something has to move for the "keep going" branch to eventually stop being chosen. Second, LangGraph4j (like LangGraph itself) enforces a maximum step count per invocation as a backstop, so a routing function with a genuine bug fails loudly with a recursion-limit error rather than hanging the process. Because state is just data flowing through ordinary function calls, the same object doubles as the unit of persistence: snapshot it after every node and a graph can be checkpointed, paused mid-loop, resumed later, or replayed from an earlier step — the machinery §2.7 below shows already running under this app, even though nothing here pauses or resumes today.</p>
+
+      <h3>2.2 — State is a typed view over a map, not a class hierarchy</h3>
+      <p>Every LangGraph4j graph carries a state type extending <code>AgentState</code>, which is fundamentally a wrapper around <code>Map&lt;String, Object&gt;</code>. <code>PropertyManagementState</code> adds nothing structural to that — no new fields, no schema annotations — only typed accessor methods built on <code>AgentState</code>'s generic <code>&lt;T&gt; Optional&lt;T&gt; value(String key)</code>:</p>
+      <div class="code-window">
+        <div class="code-window-bar">
+          <span class="code-window-path">excerpt</span>
+          <span class="code-window-lines">from agent/PropertyManagementState.java</span>
+        </div>
+        <pre><code>public Optional&lt;UniversalRoutingData&gt; routingData() {
+    return this.value(ROUTING_DATA);
+}
+
+public Optional&lt;CityNoticeSchema&gt; cityNotice() {
+    return this.value(CITY_NOTICE);
+}</code></pre>
+      </div>
+      <p>Nothing enforces that <code>ROUTING_DATA</code> holds a <code>UniversalRoutingData</code> at the map level — the cast happens inside <code>value()</code>'s generic signature, at the call site. That's a real trade-off: the four constant strings (<code>ROUTING_DATA</code>, <code>CITY_NOTICE</code>, <code>MAINTENANCE</code>, <code>DISPUTE</code>) are the only thing keeping every node's writes and every accessor's reads pointed at the same keys, with no compiler check tying them together. What LangGraph4j buys in exchange is a state type that composes cleanly across an arbitrary graph shape: a node never needs to know the full state's type, only the handful of keys it reads and writes.</p>
+      <p>State merging between nodes defaults to simple overwrite unless a graph explicitly registers a <code>Map&lt;String, Channel&lt;?&gt;&gt;</code> schema — LangGraph4j's own examples use <code>Channels.appender(ArrayList::new)</code> to accumulate a running message list across nodes, the way a conversational agent would. <code>EstateBeaconGraph</code> never registers a channel schema at all, constructing its graph with a bare <code>AgentStateFactory</code> reference instead: every node here writes a distinct key exactly once, so there is nothing to accumulate and the default "last write wins" behavior is already correct.</p>
+
+      <h3>2.3 — A node is a plain function; async wrapping is the graph engine's problem, not the node's</h3>
+      <p>The contract a node implements is deliberately small:</p>
+      <div class="code-window">
+        <div class="code-window-bar">
+          <span class="code-window-path">org.bsc.langgraph4j.action.NodeAction</span>
+        </div>
+        <pre><code>public interface NodeAction &lt;T extends AgentState&gt; {
+    Map&lt;String, Object&gt; apply(T state) throws Exception;
+}</code></pre>
+      </div>
+      <p>Every one of <code>SupervisorNode</code>, <code>LegalAgentNode</code>, <code>MaintenanceAgentNode</code>, and <code>DisputeAgentNode</code> implements exactly this — a synchronous method that reads whatever it needs off <code>state</code> and returns a partial update map. <code>node_async(...)</code>, called once per node inside <code>EstateBeaconGraph.compile()</code>, adapts that into an <code>AsyncNodeAction</code> (a <code>Function&lt;S, CompletableFuture&lt;Map&lt;String,Object&gt;&gt;&gt;</code>) so the graph engine has one uniform async execution model regardless of whether a given node happens to block internally — which every node here does, on its own call to Spring AI's <code>ChatClient</code>. LangGraph4j has no awareness that Spring exists: it is handed a <code>NodeAction</code> instance at graph-build time and never inspects where that instance came from. Spring constructs each node class as an ordinary <code>@Component</code>, injecting a <code>ChatClient</code> into its constructor exactly like it would for any other bean; LangGraph4j just receives the finished object as a functional value.</p>
+
+      <h3>2.4 — An edge decides the next node's name, as a string</h3>
+      <p>Conditional routing is the same shape, one level up:</p>
+      <div class="code-window">
+        <div class="code-window-bar">
+          <span class="code-window-path">org.bsc.langgraph4j.action.EdgeAction</span>
+        </div>
+        <pre><code>public interface EdgeAction&lt;S extends AgentState&gt; {
+    String apply(S state) throws Exception;
+}</code></pre>
+      </div>
+      <p><code>ClassificationRouter</code> implements this directly — a pure function from state to a route key, with no <code>CompletableFuture</code> visible anywhere in its own code (<a href="#deepdives">deep-dive 4</a>). <code>edge_async(...)</code> does the same adaptation <code>node_async</code> does for nodes. The part worth being precise about is what <code>addConditionalEdges(sourceId, condition, mappings)</code> actually does with the result: the string the condition returns is looked up as a <em>key</em> in the <code>mappings</code> map, and the corresponding <em>value</em> is the real target — either another registered node id, or the <code>StateGraph.END</code> sentinel. <code>ClassificationRouter</code> returns <code>StateGraph.END</code> directly for an <code>IGNORED</code> classification, so its own mapping entry is the identity pair <code>END → END</code> — not a redundant line, but the mapping correctly reflecting that the router's own return value already <em>is</em> the terminal sentinel, not an intermediate label that still needs translating.</p>
+
+      <figure class="micro">
+        <svg viewBox="0 0 870 175" role="img" aria-label="Diagram: a conditional edge's condition function returns a string, which is looked up in the mappings map, whose corresponding value is the real target node or END.">
+          <defs>
+            <marker id="arrow2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+              <path d="M0,0 L10,5 L0,10 z" fill="currentColor"></path>
+            </marker>
+          </defs>
+          <rect x="20" y="62" width="180" height="50" rx="8" fill="none" stroke="currentColor" stroke-width="1.2"></rect>
+          <text x="110" y="84" text-anchor="middle" font-size="12" font-weight="600" fill="currentColor">EdgeAction.apply(state)</text>
+          <text x="110" y="100" text-anchor="middle" font-size="10" opacity="0.7" fill="currentColor">returns a String</text>
+
+          <line x1="200" y1="88" x2="340" y2="88" stroke="currentColor" stroke-width="1.4" marker-end="url(#arrow2)"></line>
+          <text x="270" y="76" text-anchor="middle" font-size="9.5" opacity="0.75" fill="currentColor">"CITY_NOTICE" as key</text>
+
+          <rect x="344" y="28" width="230" height="118" rx="8" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.6"></rect>
+          <text x="459" y="50" text-anchor="middle" font-size="12" font-weight="600" fill="currentColor">mappings (Map)</text>
+          <text x="459" y="73" text-anchor="middle" font-size="10" fill="currentColor">"legal_agent" → "legal_agent"</text>
+          <text x="459" y="93" text-anchor="middle" font-size="10" fill="currentColor">"maintenance_agent" → "maintenance_agent"</text>
+          <text x="459" y="113" text-anchor="middle" font-size="10" fill="currentColor">END → END</text>
+
+          <line x1="574" y1="88" x2="714" y2="88" stroke="currentColor" stroke-width="1.4" marker-end="url(#arrow2)"></line>
+          <text x="644" y="76" text-anchor="middle" font-size="9.5" opacity="0.75" fill="currentColor">value looked up</text>
+
+          <rect x="718" y="62" width="130" height="50" rx="8" fill="none" stroke="currentColor" stroke-width="1.2" stroke-dasharray="4 3"></rect>
+          <text x="783" y="84" text-anchor="middle" font-size="12" font-weight="600" fill="currentColor">legal_agent</text>
+          <text x="783" y="100" text-anchor="middle" font-size="10" opacity="0.7" fill="currentColor">actual target node</text>
+        </svg>
+        <figcaption>The condition function's return value is never used as a node id directly — it's a key into the mapping, whose value is the real target. Most call sites make key and value identical strings, which is easy to misread as the condition returning the target directly.</figcaption>
+      </figure>
+
+      <h3>2.5 — Compilation performs real structural validation</h3>
+      <p><code>StateGraph.compile()</code> is not a formality. <code>addEdge</code> and <code>addConditionalEdges</code> reject a source id equal to <code>END</code> immediately — a graph can never route <em>away from</em> the terminal state, only into it — and <code>addConditionalEdges</code> separately rejects an empty mappings map and a second conditional edge registered from a source that already has one. <code>compile()</code> then runs <code>validateGraph()</code>, which requires an edge from <code>START</code> to exist before it validates every other registered edge against the actual set of nodes added via <code>addNode</code>. The library's own test suite surfaces just how structural this gets — one assertion expects the exact message <em>"parallel node doesn't support conditional branch, but on [A] a conditional branch on [A3] have been found!"</em> when a graph tries to combine two shapes LangGraph4j considers incompatible.</p>
+      <p>The practical consequence for <code>EstateBeaconGraph</code>: if a fifth specialist were ever added to <code>ClassificationRouter</code>'s enum and its routing map without a matching <code>.addNode(...)</code> call in <code>compile()</code>, the graph fails to compile with a <code>GraphStateException</code> naming the missing target — at graph-construction time, once, rather than as a routing failure discovered mid-request against a real email.</p>
+
+      <h3>2.6 — Running the compiled graph: <code>invoke()</code> is the least of what <code>CompiledGraph</code> can do</h3>
+      <p><code>CompiledGraph&lt;State&gt;</code> exposes three execution modes: <code>invoke(Map&lt;String,Object&gt;)</code> — a single blocking call returning <code>Optional&lt;State&gt;</code>, used here — plus <code>stream(...)</code> and <code>streamSnapshots(...)</code>, both returning an <code>AsyncGenerator&lt;NodeOutput&lt;State&gt;&gt;</code> that yields one item per node the graph actually visits. <code>TicketProcessingService.process()</code> only ever needs the final state for one email, with no UI requirement to show intermediate progress, so <code>invoke()</code> is the right call — but it means every intermediate <code>NodeOutput</code> LangGraph4j produces along the way (which node ran, what it changed) is computed and then discarded. <code>stream()</code> is the natural extension point if the dashboard ever wanted to show "classifying…" then "extracting maintenance details…" as an email works through the graph, since that data already exists inside the library — it simply isn't consumed today.</p>
+
+      <h3>2.7 — The hidden cost of a compiled graph: state gets cloned between every step</h3>
+      <p>LangGraph4j clones the current <code>AgentState</code> before applying every node's action, and again whenever it builds a <code>NodeOutput</code> or <code>InterruptionMetadata</code> — machinery inside <code>CompiledGraph.AsyncNodeGenerator</code> that runs on every step of every invocation, unconditionally. It is easy to assume this is part of the checkpointing/interruption/time-travel machinery and therefore gated behind configuring a <code>BaseCheckpointSaver</code>; it isn't. A checkpointer only gates one separate, additional call — <code>addCheckpoint()</code>, which persists a clone to the saver — so leaving it unconfigured (as this app originally did) removes that extra write, not the cloning itself. What actually controls the cloning is the graph's <code>StateSerializer</code>, chosen once at <code>StateGraph</code> construction time: the convenience constructor that takes just an <code>AgentStateFactory</code> — <code>new StateGraph&lt;&gt;(PropertyManagementState::new)</code>, as this app originally did — implicitly picks <code>ObjectStreamStateSerializer</code>, which clones any value type it hasn't specifically registered by round-tripping it through <code>ObjectOutput.writeObject(...)</code>, i.e. plain Java serialization. That makes <code>Serializable</code> a real, load-bearing requirement on every type that ever lands in state: not enforced by the compiler, and not visible until a graph actually executes with a non-serializable value sitting in it. This surfaced directly while building this app (<a href="#production">§06</a>) — a <code>java.io.NotSerializableException</code> thrown from deep inside <code>AsyncNodeGenerator</code>, for a reason nothing in LangGraph4j's public API signature warns about ahead of time. The graph now passes an explicit <code>PropertyManagementStateSerializer</code> — a small <code>PlainTextStateSerializer</code> that round-trips state through Jackson JSON — to the other <code>StateGraph</code> constructor, the one that takes a <code>StateSerializer</code> directly; a JSON round trip has no <code>Serializable</code> requirement, so none of the four schema records need to implement it any more.</p>
+
+      <h3>2.8 — Why a graph engine, for one branch and no loops</h3>
+      <p>With exactly one conditional fan-out and no cycles, this entire pipeline could be a <code>switch</code> statement inside a single service method — and for a codebase this size, that would compile and run identically. What a real graph engine buys instead: state and transitions become declared data (<code>addNode</code>, <code>addEdge</code>, <code>addConditionalEdges</code> calls LangGraph4j can introspect and diagram, rather than branches buried in imperative control flow) with genuine headroom already built in. LangGraph4j supports cycles, sub-graphs, checkpointed interruption, and human-in-the-loop pauses — none of which this pipeline uses, all of which are additional <code>addNode</code>/<code>addEdge</code> calls rather than a rewrite, the day a specialist needs to hand a case back to the supervisor for re-classification, or a city-notice response needs to pause for a human's sign-off before it's filed.</p>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="springai">
+      <div class="section-eyebrow"><span class="num">03</span></div>
+      <h2>Spring AI: the model layer</h2>
+      <p>LangGraph4j decides <em>when</em> a node runs; what each node does once it runs is entirely Spring AI's concern. Every one of the four nodes calls the same injected <code>ChatClient</code> the same way, differing only in the prompt text and the target record type.</p>
+
+      <h3>3.1 — What <code>useProviderStructuredOutput()</code> actually opts into</h3>
+      <p>Spring AI's default structured-output path is <code>BeanOutputConverter</code>: it generates a JSON schema from a target type using the <a href="https://github.com/victools/jsonschema-generator">victools</a> generator, stuffs a textual description of that schema into the prompt, and forgivingly parses whatever text comes back — a necessary fallback for models with no native schema support. <code>spec.useProviderStructuredOutput()</code>, called in every node's <code>.entity(...)</code> invocation, opts out of that fallback: for a provider that supports it — Google GenAI, OpenAI, Anthropic, and Mistral, as of this Spring AI release — the schema is sent as an actual field on the API request, and the provider's own constrained decoder enforces it server-side rather than Spring AI parsing free text afterward. Confirmed live in this session, not just from documentation: a real Gemini key returned a correctly-typed <code>UniversalRoutingData</code> record on the first attempt, with the schema derived automatically from the record's own shape.</p>
+
+      <h3>3.2 — Records supply both the wire schema and the prompt metadata</h3>
+      <p><code>@JsonPropertyDescription</code> on each record component isn't documentation — it's compiled directly into the JSON schema Spring AI hands the model, and the model conditions its extraction on that text the same way it would on an explicit few-shot instruction. One declaration on <code>CityNoticeSchema.entityPhone</code> — <code>@JsonPropertyDescription("Contact phone number for the issuing authority")</code> — does the job of both a Javadoc comment for a future maintainer and a targeted instruction for the model, at once.</p>
+
+      <h3>3.3 — Prompt engineering: one flat text block, one real gap</h3>
+      <p>Every node builds its prompt as a single Java text block passed to <code>.user(prompt)</code> — no <code>SystemMessage</code>/<code>UserMessage</code> split, no delimiter separating the classification instructions from the email body being classified. <span class="file-ref">SupervisorNode</span> (<a href="#deepdives">deep-dive 2</a>) interpolates <code>state.originalEmailText()</code> — the full, untrusted body of an externally-received email — directly into the same string as the instructions telling the model how to behave. That is a concrete prompt-injection surface: nothing structurally stops an email's own body from containing text a model could read as an instruction rather than content to classify, and there is no role-based signal in the request separating the two. Fixing it would mean moving the instructions into an actual <code>SystemMessage</code> and the email content into a separate <code>UserMessage</code>, which Spring AI's <code>ChatClient</code> supports directly but none of the four nodes currently use.</p>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="runtime">
+      <div class="section-eyebrow"><span class="num">04</span></div>
+      <h2>Java 25 &amp; Spring Boot 4 runtime</h2>
+
+      <h3>4.1 — Pattern matching makes the routing table's completeness a compiler fact</h3>
+      <p><code>ClassificationRouter</code> resolves a classification with an exhaustive switch expression over the <code>Classification</code> enum:</p>
+      <div class="code-window">
+        <div class="code-window-bar">
+          <span class="code-window-path">excerpt</span>
+          <span class="code-window-lines">from agent/ClassificationRouter.apply</span>
+        </div>
+        <pre><code>.map(routing -> switch (routing.classification()) {
+    case CITY_NOTICE -> LEGAL_AGENT;
+    case MAINTENANCE -> MAINTENANCE_AGENT;
+    case TENANT_DISPUTE -> DISPUTE_AGENT;
+    case IGNORED -> StateGraph.END;
+})</code></pre>
+      </div>
+      <p>Because <code>classification()</code> returns the enum type rather than a raw string, the compiler requires every constant to have a matching case — there is no <code>default</code> branch, and none is needed. Add a fifth value to <code>Classification</code> without touching this file and the build fails here specifically, at the one place a human needs to decide where the new category routes. That's a mechanical correctness property, not a style preference: an unhandled case is a compile-time error, not a value silently falling through to a default at runtime.</p>
+
+      <h3>4.2 — Records as both the schema and the serialization contract</h3>
+      <p><code>UniversalRoutingData</code>, <code>CityNoticeSchema</code>, <code>MaintenanceSchema</code>, and <code>DisputeSchema</code> are records — immutable and structurally transparent. They started out each declaring <code>implements Serializable</code> (<a href="#langgraph4j">§2.7</a>'s first finding): the graph's default <code>StateSerializer</code> clones every state value with plain Java serialization, and a record gets no special exemption from that requirement just for being a record — the interface has to be declared explicitly, the same as on any other class. That requirement went away once the graph switched to a JSON-based <code>StateSerializer</code> (<a href="#langgraph4j">§2.7</a>): none of the four records implement <code>Serializable</code> today, since a JSON round trip only needs Jackson to see their fields, not the JDK's serialization mechanism.</p>
+
+      <h3>4.3 — Spring Boot 4's baseline, mostly invisible here</h3>
+      <p>Spring Boot 4.1.1 sits on Spring Framework 7 and a Jakarta EE 11 baseline, but that shift is invisible to an app with no servlets and no JPA. The one place it was directly felt: Jackson now ships as two coexisting major versions on the classpath — <code>com.fasterxml.jackson.core:jackson-databind:2.21.5</code> for Spring's own JSON handling, and the renamed-groupId <code>tools.jackson.core:jackson-databind:3.1.5</code> for Spring AI's schema tooling. <code>jackson-annotations</code>, notably, kept its original <code>com.fasterxml.jackson.annotation</code> package through that split — the only reason <code>@JsonPropertyDescription</code> imports the way it always has, unaffected by which Jackson major version processes it downstream.</p>
+
+      <h3>4.4 — The one coupling this integration creates: whose thread is this?</h3>
+      <p>Spring constructs singleton beans during context refresh — which, in this app, happens inside <code>EstateBeaconApp.init()</code>, called by the JavaFX launcher before the JavaFX Application Thread is guaranteed ready for <code>Node</code> construction. A <code>@Component</code> that builds real <code>TableView</code>/<code>Button</code> instances as field initializers is completely idiomatic Spring and wrong for JavaFX at the same time — the two frameworks' threading assumptions simply don't line up by default. This is exactly the failure mode covered as a critical, found-and-fixed bug in <a href="#production">§06</a>.</p>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="deepdives">
+      <div class="section-eyebrow"><span class="num">05</span></div>
+      <h2>Verbatim deep-dives</h2>
+      <p>Five snippets from <code>java-app/src/main/java/com/estatebeacon</code>, quoted exactly as committed.</p>
+
+      <!-- Deep dive 1 -->
+      <div class="deepdive">
+        <div class="deepdive-head"><span class="deepdive-index">1</span><h3 style="color:var(--ink);">Two lifecycles, stitched into one entry point</h3></div>
+        <div class="code-window">
+          <div class="code-window-bar">
+            <span class="code-window-path">EstateBeaconApp.java</span>
+            <span class="code-window-lines">whole file</span>
+          </div>
+          <pre><code>@SpringBootApplication
+@ConfigurationPropertiesScan
+public class EstateBeaconApp extends Application {
+
+    private ConfigurableApplicationContext springContext;
+
+    public static void main(String[] args) {
+        launch(args);
+    }
+
+    @Override
+    public void init() {
+        springContext = new SpringApplicationBuilder(EstateBeaconApp.class)
+                .headless(false)
+                .run(getParameters().getRaw().toArray(new String[0]));
+    }
+
+    @Override
+    public void start(Stage stage) {
+        Application.setUserAgentStylesheet(new PrimerDark().getUserAgentStylesheet());
+        springContext.getBean(DashboardView.class).show(stage);
+    }
+
+    @Override
+    public void stop() {
+        springContext.close();
+        Platform.exit();
+    }
+}</code></pre>
+        </div>
+        <div class="annot">
+          <dl>
+            <dt>Pattern</dt>
+            <dd>One class answers to two frameworks: <code>@SpringBootApplication</code> makes it a valid component-scan root, while <code>extends Application</code> makes it a valid JavaFX launch target. <code>launch(args)</code> is JavaFX's own static bootstrap — it is what invokes <code>init()</code> and then <code>start(Stage)</code> on the correct threads, not Spring.</dd>
+            <dt>How the abstractions drive behavior</dt>
+            <dd><code>headless(false)</code> stops Spring Boot from assuming a server environment and disabling UI-related autoconfiguration it would otherwise switch off by default. <code>springContext.getBean(DashboardView.class)</code> is the one moment the two frameworks actually hand off to each other — a fully-constructed, dependency-injected view object crossing from Spring's world into JavaFX's.</dd>
+            <dt>Edge case</dt>
+            <dd>Nothing catches a construction failure here. If <code>SpringApplicationBuilder(...).run(...)</code> throws — as it did, repeatedly, while diagnosing the bugs in <a href="#production">§06</a> — the exception propagates out of <code>init()</code> as an unhandled JavaFX launch failure with a Spring stack trace underneath it, a jarring mix of two frameworks' error-reporting conventions for an end user to ever see.</dd>
+          </dl>
+        </div>
+      </div>
+
+      <!-- Deep dive 2 -->
+      <div class="deepdive">
+        <div class="deepdive-head"><span class="deepdive-index">2</span><h3 style="color:var(--ink);">Structured extraction via ChatClient</h3></div>
+        <div class="code-window">
+          <div class="code-window-bar">
+            <span class="code-window-path">agent/AbstractLlmExtractionNode.java</span>
+            <span class="code-window-lines">apply()</span>
+          </div>
+          <pre><code>@Override
+public final Map&lt;String, Object&gt; apply(PropertyManagementState state) {
+    try {
+        T result = chatClient.prompt()
+                .user(buildPrompt(state))
+                .call()
+                .entity(resultType, spec -&gt; spec.useProviderStructuredOutput());
+        return Map.of(resultKey, result);
+    } catch (Exception e) {
+        log.error("{} failed", name, e);
+        return Map.of(PropertyManagementState.ERROR, name + " extraction failed: " + e.getMessage());
+    }
+}</code></pre>
+        </div>
+        <div class="annot">
+          <dl>
+            <dt>Pattern</dt>
+            <dd>This is now the <em>only</em> place <code>.entity(...)</code> is called anywhere in the app. <code>SupervisorNode</code>, <code>LegalAgentNode</code>, <code>MaintenanceAgentNode</code>, and <code>DisputeAgentNode</code> all extend this class; each supplies just a prompt (via the abstract <code>buildPrompt(state)</code>), a target record type, a state key, and a name through the constructor — <code>SupervisorNode</code>'s entire body is now a constructor call, <code>super(chatClient, UniversalRoutingData.class, PropertyManagementState.ROUTING_DATA, "Supervisor node")</code>, plus a <code>buildPrompt()</code> override holding the same prompt text this deep-dive originally quoted inline. <code>.entity(resultType, ...)</code> still does the same double duty described in <a href="#springai">§3.1</a>: generating the schema Gemini decodes against, and deserializing the response into the same type — <code>resultType</code> is just a <code>Class&lt;T&gt;</code> parameter now instead of a type baked into four separate call sites.</dd>
+            <dt>How Spring AI is driving it</dt>
+            <dd><code>chatClient</code> is still injected, not constructed here — each concrete subclass takes it as a constructor parameter and forwards it via <code>super(...)</code>. The autoconfiguration story is unchanged: a one-method <code>@Configuration</code> class calls <code>ChatClient.Builder.build()</code>, with the builder itself wired by <code>spring-ai-starter-model-google-genai</code> from whatever <code>spring.ai.google.genai.*</code> properties are active. Nothing in this class hard-codes that the model is Gemini.</dd>
+            <dt>Edge case</dt>
+            <dd>The <code>catch (Exception e)</code> is still deliberately broad, for the same reason as before: it converts a schema violation, a network failure, and a quota error into one identically-shaped <code>error</code> entry in the returned state map, trading diagnostic precision for a graph that never crashes on one bad email. What changed is where that trade-off lives: this method used to be copy-pasted four times — once per node, each with its own prompt text interleaved into the same <code>try</code>/<code>catch</code>/log/return shape — a duplication a later review pass flagged directly (not a runtime bug, so it isn't in <a href="#production">§06</a>'s list; a reuse finding instead). Collapsing it here means the next change to that error-handling contract, like adding a retry, is now a one-place edit instead of a four-place one.</dd>
+          </dl>
+        </div>
+      </div>
+
+      <!-- Deep dive 3 -->
+      <div class="deepdive">
+        <div class="deepdive-head"><span class="deepdive-index">3</span><h3 style="color:var(--ink);">Compiling the graph — once</h3></div>
+        <div class="code-window">
+          <div class="code-window-bar">
+            <span class="code-window-path">agent/EstateBeaconGraph.java</span>
+            <span class="code-window-lines">constructor</span>
+          </div>
+          <pre><code>public EstateBeaconGraph(
+        SupervisorNode supervisorNode,
+        LegalAgentNode legalAgentNode,
+        MaintenanceAgentNode maintenanceAgentNode,
+        DisputeAgentNode disputeAgentNode
+) throws GraphStateException {
+    StateGraph&lt;PropertyManagementState&gt; graph = new StateGraph&lt;&gt;(new PropertyManagementStateSerializer())
+            .addNode("supervisor", node_async(supervisorNode))
+            .addNode(ClassificationRouter.LEGAL_AGENT, node_async(legalAgentNode))
+            .addNode(ClassificationRouter.MAINTENANCE_AGENT, node_async(maintenanceAgentNode))
+            .addNode(ClassificationRouter.DISPUTE_AGENT, node_async(disputeAgentNode))
+            .addEdge(START, "supervisor")
+            .addConditionalEdges(
+                    "supervisor",
+                    edge_async(new ClassificationRouter()),
+                    java.util.Map.of(
+                            ClassificationRouter.LEGAL_AGENT, ClassificationRouter.LEGAL_AGENT,
+                            ClassificationRouter.MAINTENANCE_AGENT, ClassificationRouter.MAINTENANCE_AGENT,
+                            ClassificationRouter.DISPUTE_AGENT, ClassificationRouter.DISPUTE_AGENT,
+                            END, END
+                    )
+            )
+            .addEdge(ClassificationRouter.LEGAL_AGENT, END)
+            .addEdge(ClassificationRouter.MAINTENANCE_AGENT, END)
+            .addEdge(ClassificationRouter.DISPUTE_AGENT, END);
+
+    this.compiledGraph = graph.compile();
+}</code></pre>
+        </div>
+        <div class="annot">
+          <dl>
+            <dt>Pattern</dt>
+            <dd><code>new StateGraph&lt;&gt;(new PropertyManagementStateSerializer())</code> — the graph's structure never changes at runtime, so building and compiling it belongs at bean-construction time, not per request. <code>EstateBeaconGraph</code> now holds the resulting <code>CompiledGraph&lt;PropertyManagementState&gt;</code> in a field and returns the same instance from every call to its <code>compiledGraph()</code> accessor, which <code>TicketProcessingService.process()</code> calls once per email and hands straight to <code>invoke(...)</code>. See <a href="#langgraph4j">§2.2</a> for why no explicit channel schema is registered here, and §2.7 for why the serializer is passed explicitly rather than via the <code>AgentStateFactory</code>-only constructor.</dd>
+            <dt>How the abstractions drive behavior</dt>
+            <dd>Four <code>addNode</code> calls register every node the graph can ever visit; <code>compile()</code> (§2.5) checks the conditional-edge mapping's three specialist targets and its <code>END</code> entry against exactly that set. Get the string constants in <code>ClassificationRouter</code> and this map out of sync, and the mismatch is caught here, not mid-request — and because this now runs once, at Spring context startup, a malformed graph fails the application before a window ever opens rather than on whatever email happens to be first through the pipeline.</dd>
+            <dt>Edge case</dt>
+            <dd>This constructor throwing <code>GraphStateException</code> is a real behavior change from a plain no-arg constructor: Spring's bean creation fails, and the whole application fails to start, on a malformed graph. That's the intended trade — the previous shape (a <code>compile()</code> method called fresh on every single email, discovered during a later review pass rather than by a crash, since compilation itself is cheap structural validation with no network I/O) delayed that exact same failure to the first email routed through it instead of catching it at startup, and paid a redundant graph-construction cost on every invocation for no benefit, since nothing about the graph's shape depends on which email is being processed.</dd>
+          </dl>
+        </div>
+      </div>
+
+      <!-- Deep dive 4 -->
+      <div class="deepdive">
+        <div class="deepdive-head"><span class="deepdive-index">4</span><h3 style="color:var(--ink);">The routing decision, as an exhaustive switch</h3></div>
+        <div class="code-window">
+          <div class="code-window-bar">
+            <span class="code-window-path">agent/ClassificationRouter.java</span>
+            <span class="code-window-lines">class body</span>
+          </div>
+          <pre><code>public class ClassificationRouter implements EdgeAction&lt;PropertyManagementState&gt; {
+
+    public static final String LEGAL_AGENT = "legal_agent";
+    public static final String MAINTENANCE_AGENT = "maintenance_agent";
+    public static final String DISPUTE_AGENT = "dispute_agent";
+
+    @Override
+    public String apply(PropertyManagementState state) {
+        return state.routingData()
+                .map(routing -> switch (routing.classification()) {
+                    case CITY_NOTICE -> LEGAL_AGENT;
+                    case MAINTENANCE -> MAINTENANCE_AGENT;
+                    case TENANT_DISPUTE -> DISPUTE_AGENT;
+                    case IGNORED -> StateGraph.END;
+                })
+                .orElse(StateGraph.END);
+    }
+}</code></pre>
+        </div>
+        <div class="annot">
+          <dl>
+            <dt>Pattern</dt>
+            <dd>See <a href="#runtime">§4.1</a> for the exhaustiveness guarantee this switch gets from routing on the <code>Classification</code> enum rather than a raw string. The <code>Optional::map</code> chain handles "the supervisor node failed, so there's no routing data at all" the same way the terminal case inside the switch handles a successful <code>IGNORED</code> classification — both fold to <code>StateGraph.END</code>, for different reasons.</dd>
+            <dt>How LangGraph4j is driving it</dt>
+            <dd>This class implements the synchronous <code>EdgeAction&lt;S&gt;</code> interface directly (<a href="#langgraph4j">§2.4</a>); <code>EstateBeaconGraph</code> wraps an instance of it with <code>edge_async(...)</code> before handing it to <code>addConditionalEdges</code>. The router itself never touches a <code>CompletableFuture</code> — that's entirely the wrapper's concern, which is exactly what makes this class trivial to unit-test by constructing a <code>PropertyManagementState</code> directly and calling <code>apply()</code> on it.</dd>
+            <dt>Edge case</dt>
+            <dd>Add a fifth <code>Classification</code> constant without adding a case here, and the build fails at this switch specifically — not at a routing-map mismatch discovered by <code>compile()</code> elsewhere, but at the compiler, before either type is even a runtime concern.</dd>
+          </dl>
+        </div>
+      </div>
+
+      <!-- Deep dive 5 -->
+      <div class="deepdive">
+        <div class="deepdive-head"><span class="deepdive-index">5</span><h3 style="color:var(--ink);">OAuth2 desktop flow</h3></div>
+        <div class="code-window">
+          <div class="code-window-bar">
+            <span class="code-window-path">email/GmailEmailFetcher.java</span>
+            <span class="code-window-lines">connect()</span>
+          </div>
+          <pre><code>public void connect() throws IOException, GeneralSecurityException {
+    var httpTransport = GoogleNetHttpTransport.newTrustedTransport();
+    var jsonFactory = GsonFactory.getDefaultInstance();
+
+    var credentialsFile = AppPaths.appFile("credentials.json").toFile();
+    if (!credentialsFile.isFile()) {
+        throw new FileNotFoundException(
+                "OAuth credentials file not found at '" + credentialsFile
+                        + "'. Download it from the Google Cloud Console and place it there.");
+    }
+
+    GoogleClientSecrets clientSecrets;
+    try (var reader = new FileReader(credentialsFile)) {
+        clientSecrets = GoogleClientSecrets.load(jsonFactory, reader);
+    }
+
+    var tokenStore = new FileDataStoreFactory(AppPaths.appFile("tokens").toFile());
+    var flow = new GoogleAuthorizationCodeFlow.Builder(httpTransport, jsonFactory, clientSecrets, SCOPES)
+            .setDataStoreFactory(tokenStore)
+            .setAccessType("offline")
+            .build();
+    var receiver = new LocalServerReceiver.Builder().setPort(8888).build();
+    Credential credential = new AuthorizationCodeInstalledApp(flow, receiver).authorize("user");
+
+    this.service = new Gmail.Builder(httpTransport, jsonFactory, credential)
+            .setApplicationName(APPLICATION_NAME)
+            .build();
+}</code></pre>
+        </div>
+        <div class="annot">
+          <dl>
+            <dt>Pattern</dt>
+            <dd>Gateway construction, isolated to exactly one method — everything above the final <code>Gmail.Builder</code> call exists only to produce one authenticated <code>Credential</code>. This is the only place in the codebase that knows Gmail's OAuth client library exists at all.</dd>
+            <dt>How the Google client library is driving it</dt>
+            <dd><code>FileDataStoreFactory</code> manages its own on-disk token cache under <code>~/.property_manager_ai/tokens/</code>, in its own serialization format, refreshing a stored token automatically once <code>setAccessType("offline")</code> has secured a refresh token on first authorization — the reason a user only has to click through the OAuth consent screen once.</dd>
+            <dt>Edge case</dt>
+            <dd><code>LocalServerReceiver.Builder().setPort(8888)</code> hard-codes the OAuth redirect port with no fallback. If anything else on the machine is already bound to 8888 when a fresh (non-cached) authorization is actually needed, this throws a bind exception with no message connecting it back to "something else is using 8888" — a rough edge for a desktop tool that otherwise fails with an actionable message, as the missing-<code>credentials.json</code> branch two lines above it does.</dd>
+          </dl>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="production">
+      <div class="section-eyebrow"><span class="num">06</span></div>
+      <h2>Bugs found running it live</h2>
+      <p>Every finding below happened in this session, against a real Gemini key and a real Gmail inbox, and was fixed and re-verified before being written down here — not a code-review guess.</p>
+
+      <div class="finding">
+        <span class="finding-sev sev-critical">Critical — found &amp; fixed</span>
+        <span class="finding-title">LangGraph4j snapshots state with Java serialization; the schema records weren't Serializable</span>
+        <p class="finding-body">First real run threw <code>java.io.NotSerializableException: com.estatebeacon.model.UniversalRoutingData</code> from inside <code>CompiledGraph$AsyncNodeGenerator</code>. Reading the library's own internals confirmed why (<a href="#langgraph4j">§2.7</a>): the graph's default <code>StateSerializer</code> clones <code>AgentState</code> values between every step using <code>ObjectOutputStream</code>-based serialization — unconditionally, regardless of whether a checkpointer is configured — and a Java record gets no free pass on <code>Serializable</code> just for being a record. The first fix, declaring <code>implements Serializable</code> on all four schema records, worked but only patched the symptom. The real fix, applied afterward: swap in <code>PropertyManagementStateSerializer</code>, a JSON-based <code>StateSerializer</code> built on Jackson, so state cloning never needs <code>Serializable</code> in the first place. A full graph invocation was re-run afterward and returned correct <code>UniversalRoutingData</code> and <code>MaintenanceSchema</code> values with no error, and the four schema records no longer implement <code>Serializable</code>.</p>
+      </div>
+
+      <div class="finding">
+        <span class="finding-sev sev-critical">Critical — found &amp; fixed</span>
+        <span class="finding-title">JavaFX controls were constructed off the FX Application Thread</span>
+        <p class="finding-body"><code>DashboardView</code>'s <code>TableView</code>, <code>Button</code>, and other controls were originally instance-field initializers — idiomatic for a Spring <code>@Component</code>, and wrong for JavaFX, since Spring constructs singleton beans during context refresh inside <code>EstateBeaconApp.init()</code>, before the FX Application Thread is guaranteed ready for <code>Node</code> construction. Fixed by deferring every JavaFX object's construction into <code>buildRoot()</code>, which only ever executes from <code>show(Stage)</code>, itself only ever called from <code>Application.start()</code> on the correct thread — the seam described in <a href="#runtime">§4.4</a>.</p>
+      </div>
+
+      <div class="finding">
+        <span class="finding-sev sev-critical">Critical — found &amp; fixed</span>
+        <span class="finding-title">Gmail batching assumed no inbox would exceed 100 unread messages</span>
+        <p class="finding-body">A later pass rewrote <code>fetchUnreadEmails()</code> to page through every unread message and fetch bodies via a single <code>BatchRequest</code> instead of one blocking call per message. First real run against a 228-message unread inbox threw <code>400 Bad Request</code> straight from Gmail: <code>"Inner request count exceeds the limit. Received: 228, Limit: 100"</code> — Gmail caps a batch at 100 inner requests, undocumented anywhere in the client library's own types. Fixed by chunking the message-id list into <code>MAX_BATCH_SIZE</code>-sized groups, one <code>BatchRequest</code> per chunk.</p>
+      </div>
+
+      <div class="finding">
+        <span class="finding-sev sev-moderate">Moderate — found &amp; fixed</span>
+        <span class="finding-title">EnvironmentPostProcessor registration used the wrong Spring Boot 4 mechanism</span>
+        <p class="finding-body">Spring Boot 4 moved <code>EnvironmentPostProcessor</code> to a new package (<code>org.springframework.boot.EnvironmentPostProcessor</code>), which reads as a signal to register it via the newer <code>META-INF/spring/&lt;interface&gt;.imports</code> convention other autoconfiguration classes use. That's wrong for this specific interface: decompiling <code>spring-boot-4.1.1.jar</code> showed <code>SpringFactoriesEnvironmentPostProcessorsFactory</code> still looks the class up under the classic <code>META-INF/spring.factories</code> key. The dotenv bridge silently never ran until this was corrected — the Spring context started successfully either way, just without <code>GOOGLE_API_KEY</code> ever reaching <code>spring.ai.google.genai.api-key</code>, so the failure surfaced two layers downstream as a Gemini authentication error instead of pointing at its real cause.</p>
+      </div>
+
+      <div class="finding">
+        <span class="finding-sev sev-moderate">Moderate — found &amp; fixed</span>
+        <span class="finding-title">IGNORED emails were reclassified by Gemini on every single fetch</span>
+        <p class="finding-body">Deduplication originally only checked the <code>tickets</code> table — but IGNORED emails deliberately get no ticket row, and this app's readonly Gmail scope means it never marks a message read. Against a real inbox, not just a handful of hand-sent test emails, that meant every unrelated, still-unread message got reclassified by Gemini on every fetch, forever, indistinguishable in the UI from genuine new work. Fixed with a second table, <code>processed_emails</code>, recording every email_id the pipeline finished for — ticketed or not — checked before the pipeline runs at all rather than only at insert time. Verified against the shared database mid-session: 55 rows in <code>processed_emails</code> versus 7 in <code>tickets</code>, matching 7 real classifications plus 48 IGNORED or unrelated messages, all correctly remembered on the next fetch.</p>
+      </div>
+
+      <div class="finding">
+        <span class="finding-sev sev-moderate">Moderate — found &amp; fixed</span>
+        <span class="finding-title">Chunking under Gmail's batch cap wasn't enough — its per-user concurrent-request limit still silently dropped messages</span>
+        <p class="finding-body">Even with every batch under Gmail's 100-inner-request cap (previous finding), the same 228-message run failed 125 of them individually with <code>"Too many concurrent requests for user"</code> — a separate, undocumented limit, because Gmail's backend fans a batch's inner requests out concurrently rather than processing them one at a time. No exception surfaced; <code>fetchUnreadEmails()</code> just silently returned fewer emails than existed. Fixed two ways at once: <code>MAX_BATCH_SIZE</code> dropped from 100 to 10 to keep in-flight requests under whatever the real concurrency ceiling is, and a retry-with-backoff pass re-fetches whatever still fails after each round, up to <code>MAX_FETCH_RETRIES</code> times. Re-run against the same live inbox afterward: 204 of 228 messages fetched cleanly; the remainder simply aren't marked processed, so they're retried on the next fetch rather than lost.</p>
+      </div>
+
+      <div class="finding">
+        <span class="finding-sev sev-info">Info</span>
+        <span class="finding-title">No streaming, one email at a time, and the injection surface from §3.3</span>
+        <p class="finding-body">Every node blocks synchronously on its own Gemini call rather than using <code>ChatClient</code>'s streaming API (§2.6 covers where LangGraph4j's own <code>stream()</code> would need to plug in first). <code>DashboardView</code> runs its fetch batch on a single-threaded <code>ExecutorService</code>, so exactly one Gemini call is ever in flight regardless of how many unread emails a fetch pulls in. Neither is a bug so much as a scope boundary this pipeline hasn't needed to cross yet.</p>
+      </div>
+
+      <div class="finding">
+        <span class="finding-sev sev-info">Info</span>
+        <span class="finding-title">Zero permanent test coverage, for everything that touches Gemini or Gmail</span>
+        <p class="finding-body">Each fix above was confirmed with a real <code>@SpringBootTest</code> hitting the live Gemini API and the real shared database (or, for the Gmail-batching fixes, a standalone script against the real inbox), then deleted or discarded immediately afterward — deliberately, since a test that bills a real API key and needs a credential no CI environment has isn't fit to leave in the suite as-is. That still holds for anything touching Gemini or Gmail. It doesn't hold everywhere, though: a later pass added <code>PropertyManagementStateSerializerTest</code> as a real, permanent addition to the suite — pure JSON round-trip logic against in-memory records, no network or credential dependency, so nothing about it needed to be thrown away. It's also the one test guarding <a href="#langgraph4j">§2.7</a>'s fix directly: it fails the build if a future typed field is added to state without a matching <code>TYPED_FIELDS</code> entry, the exact silent-degradation risk that fix introduced.</p>
+      </div>
+
+      <div class="finding">
+        <span class="finding-sev sev-good">Positive</span>
+        <span class="finding-title">Provider-native structured output, verified against a real key, first try</span>
+        <p class="finding-body">The one piece of this port with no ambiguity in Spring AI's documentation about whether it would actually work: <code>useProviderStructuredOutput()</code> against Google GenAI returned a correctly-typed, correctly-populated <code>UniversalRoutingData</code> on the very first successful graph invocation (once the two threading and serialization bugs above were out of the way) — <code>senderType=tenant, propertyAddress=425 Oak Street, unitNumber=4B, classification=MAINTENANCE, priorityLevel=HIGH</code>, extracted from a real test email with no hand-tuning of the prompt or the schema needed.</p>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<footer class="colophon">
+  Traced against <code>property_manager_inbox_supervisor</code>, branch <code>develop</code>, module <code>java-app/</code> — <code>EstateBeaconApp.java</code>, <code>agent/*.java</code>, <code>config/*.java</code>, <code>email/GmailEmailFetcher.java</code>, <code>persistence/TicketRepository.java</code>, <code>service/TicketProcessingService.java</code>, <code>ui/DashboardView.java</code>.
+</footer>
